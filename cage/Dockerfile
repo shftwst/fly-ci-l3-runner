@@ -15,15 +15,15 @@ RUN useradd -m -s /bin/bash faff
 USER faff
 WORKDIR /home/faff
 
-# faff tooling: its skills plus the faff CLI, linked for this user.
-RUN git clone --depth 1 https://github.com/shftwst/faff.git /home/faff/faff \
-    && bash /home/faff/faff/scripts/link-skills.sh --global
-ENV PATH="/home/faff/.local/bin:${PATH}"
+# Install faff the way a consumer does: add its marketplace and install the plugin.
+# This is the supported install (not the repo's dev-only link-skills script). Bump it
+# later with `claude plugin update faff@faff`, or pin by installing a tagged version.
+RUN claude plugin marketplace add shftwst/faff \
+    && claude plugin install faff@faff
 
-# Register the Linear tracker MCP. This is the hosted server faff's skills call by
-# name; a different Linear MCP would expose different tool names and break them. The
-# server is OAuth-authenticated, so registration alone leaves it "needs authentication".
-# drain.sh supplies the carried credentials at runtime so it connects headlessly.
+# Register the Linear tracker MCP: the hosted server faff's skills call by name. It is
+# OAuth-authenticated, so registration alone leaves it "needs authentication"; drain.sh
+# supplies the carried credentials at runtime so it connects headlessly.
 RUN claude mcp add --transport http --scope user linear https://mcp.linear.app/mcp
 
 COPY --chown=faff:faff drain.sh /home/faff/drain.sh

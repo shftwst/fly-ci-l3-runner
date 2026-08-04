@@ -61,7 +61,7 @@ fly launch --no-deploy --name fly-ci-l3-runner --region lhr
 
 # 2. Set the secrets. These never enter the image or git.
 fly secrets set \
-  TARGET_REPO="https://github.com/you/your-repo" \
+  TARGET_REPO="https://github.com/shftwst/faff" \
   CLAUDE_CODE_OAUTH_TOKEN="$(pass faff/seat)" \
   GH_TOKEN="$(pass faff/gh)" \
   CLAUDE_CREDENTIALS_B64="$(base64 -w0 ~/.claude/.credentials.json)"
@@ -102,3 +102,10 @@ which keeps no state between firings and pushes each branch at build-complete.
 - Target repo: the faff repo is a valid target. Faff draining its own backlog at L3 is
   the self-directed watcher case that the sentry-acting knob was added for. Only L4
   (`faff lights-out`) refuses a self-directed run; this runner is L3.
+- Install: faff goes in via its plugin marketplace (`claude plugin marketplace add
+  shftwst/faff` then `claude plugin install faff@faff`), the supported consumer path,
+  not the repo's dev-only `link-skills.sh`. To move the runner to a newer faff, rebuild
+  the image or add `claude plugin update faff@faff`.
+- Live output: the drain runs `claude -p` with `--output-format stream-json --verbose`,
+  so `fly logs` shows the run turn-by-turn as it happens (line-delimited JSON events).
+  The durable record is still the run-ledger plus the disposition exit, not the stream.
