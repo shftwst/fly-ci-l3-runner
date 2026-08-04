@@ -1,0 +1,22 @@
+# fly config for the always-on faff L3 runner.
+#
+# No [http_service]: this is an outbound-only runner (it talks to GitHub and the
+# model API, nothing inbound), so there is nothing to auto-stop on idle. The Machine
+# stays up until you destroy it, which is what "always on" needs.
+#
+# Deploy (see README): launch the app, set the secrets, then start ONE standalone
+# Machine with `fly machine run`. Do not use `fly deploy`, whose release-health wait
+# can recreate a slow-booting Machine in a restart loop.
+
+app = "fly-ci-l3-runner"
+primary_region = "lhr"   # set your region
+
+[build]
+  dockerfile = "Dockerfile"
+
+# dockerd on vfs duplicates image layers, so give it headroom. 2gb RAM and 2 shared
+# CPUs matched the earlier fly rig; bump if the cage build or a drain is starved.
+[[vm]]
+  size   = "shared-cpu-2x"
+  memory = "2048"
+  cpus   = 2
