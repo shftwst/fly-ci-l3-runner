@@ -20,6 +20,12 @@ RUN git clone --depth 1 https://github.com/shftwst/faff.git /home/faff/faff \
     && bash /home/faff/faff/scripts/link-skills.sh --global
 ENV PATH="/home/faff/.local/bin:${PATH}"
 
+# Register the Linear tracker MCP. This is the hosted server faff's skills call by
+# name; a different Linear MCP would expose different tool names and break them. The
+# server is OAuth-authenticated, so registration alone leaves it "needs authentication".
+# drain.sh supplies the carried credentials at runtime so it connects headlessly.
+RUN claude mcp add --transport http --scope user linear https://mcp.linear.app/mcp
+
 COPY --chown=faff:faff drain.sh /home/faff/drain.sh
 RUN chmod +x /home/faff/drain.sh
 ENTRYPOINT ["/home/faff/drain.sh"]

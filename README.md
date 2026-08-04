@@ -27,9 +27,31 @@ Layers:
 
 - A fly.io account with `flyctl` logged in.
 - A target repo whose issues you want drained, with the ones you want built labelled
-  `faff-automate`. Nothing runs without that label.
+  `faff-automate`. Nothing runs without that label. This can be the faff repo itself:
+  faff draining faff at L3 is a supported case (the self-directed refusal is L4-only).
 - A long-lived seat token: `claude setup-token` gives you a `CLAUDE_CODE_OAUTH_TOKEN`.
 - A `gh` token with push access to the target repo (for branches and PRs).
+- Linear tracker access carried in (see below). Without it, faff runs git-only and
+  ignores your Linear issues.
+
+## Tracker (Linear)
+
+faff drives Linear through the hosted Linear MCP at `https://mcp.linear.app/mcp`. faff's
+skills call that server's tools by name, so the runner uses that exact server, not a
+substitute. It is OAuth-authenticated, and there is no browser on a fly Machine to run
+the authorization. So you authorize it once on your own machine, then carry the token.
+
+```sh
+# On your machine, once, authorize Linear for Claude Code (opens a browser):
+claude mcp add --transport http linear https://mcp.linear.app/mcp
+# use any faff command that reads Linear so the OAuth flow completes, then:
+base64 -w0 ~/.claude/.credentials.json     # this is CLAUDE_CREDENTIALS_B64
+```
+
+The cage writes that back to `~/.claude/.credentials.json` at drain time, so Linear
+connects headlessly. This carried token is the one fragile part of the runner: if
+Linear's OAuth token expires and cannot refresh headlessly, the runner drops to git-only
+until you refresh it. Watch the drain log for the `tracker: Linear MCP connected` line.
 
 ## Deploy
 
@@ -37,11 +59,12 @@ Layers:
 # 1. Create the app (no deploy yet).
 fly launch --no-deploy --name fly-ci-l3-runner --region lhr
 
-# 2. Set the three secrets. These never enter the image or git.
+# 2. Set the secrets. These never enter the image or git.
 fly secrets set \
   TARGET_REPO="https://github.com/you/your-repo" \
   CLAUDE_CODE_OAUTH_TOKEN="$(pass faff/seat)" \
-  GH_TOKEN="$(pass faff/gh)"
+  GH_TOKEN="$(pass faff/gh)" \
+  CLAUDE_CREDENTIALS_B64="$(base64 -w0 ~/.claude/.credentials.json)"
 
 # 3. Optional tuning (defaults: hourly, 290m ceiling per drain).
 fly secrets set FAFF_INTERVAL_SECS=3600 FAFF_DRAIN_TIMEOUT=290m
@@ -62,6 +85,7 @@ Set as fly secrets or env:
 
 - `TARGET_REPO` (required): the repo to drain.
 - `CLAUDE_CODE_OAUTH_TOKEN`, `GH_TOKEN` (required): the seat token and the git token.
+- `CLAUDE_CREDENTIALS_B64` (required for Linear): the carried tracker credentials.
 - `FAFF_INTERVAL_SECS` (default 3600): seconds between drains.
 - `FAFF_DRAIN_TIMEOUT` (default 290m): wall-clock ceiling per drain.
 
@@ -75,5 +99,6 @@ which keeps no state between firings and pushes each branch at build-complete.
   token or cost ceiling). `FAFF_DRAIN_TIMEOUT` only bounds wall-clock, not spend.
 - Disk: vfs duplicates image layers. If the cage build runs out of space, give the
   Machine a bigger size or mount a fly volume at `/var/lib/docker`.
-- This drains a target repo, not faff itself. A self-directed run (faff draining faff)
-  is a separate case faff refuses at L4.
+- Target repo: the faff repo is a valid target. Faff draining its own backlog at L3 is
+  the self-directed watcher case that the sentry-acting knob was added for. Only L4
+  (`faff lights-out`) refuses a self-directed run; this runner is L3.

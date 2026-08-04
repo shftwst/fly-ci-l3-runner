@@ -9,6 +9,23 @@ set -euo pipefail
 : "${CLAUDE_CODE_OAUTH_TOKEN:?set the long-lived seat token}"
 : "${GH_TOKEN:?set a gh token with push access to the target repo}"
 
+# 0. Tracker auth. faff drives Linear through the hosted Linear MCP, which is OAuth,
+#    so there is no browser here to authorize it. Carry the pre-authorized credentials
+#    instead: CLAUDE_CREDENTIALS_B64 is base64 of your ~/.claude/.credentials.json,
+#    produced after you have authorized Linear locally (see the README). Without it the
+#    Linear MCP stays unauthenticated and faff falls back to git-only, which ignores
+#    your Linear issues.
+if [ -n "${CLAUDE_CREDENTIALS_B64:-}" ]; then
+  mkdir -p "$HOME/.claude"
+  printf '%s' "$CLAUDE_CREDENTIALS_B64" | base64 -d > "$HOME/.claude/.credentials.json"
+  chmod 600 "$HOME/.claude/.credentials.json"
+fi
+if claude mcp list 2>/dev/null | grep -qiE "linear.*connected"; then
+  echo "tracker: Linear MCP connected."
+else
+  echo "WARN: Linear MCP is not connected; faff will run git-only and ignore Linear issues."
+fi
+
 # 1. Admission gate. In this container it passes (contained via /.dockerenv, no host
 #    socket). If it ever fails, refuse loudly rather than drain uncaged.
 faff container-check --gate

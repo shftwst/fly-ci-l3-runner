@@ -32,6 +32,7 @@ while true; do
   if docker run --rm \
        -e TARGET_REPO="$TARGET_REPO" \
        -e CLAUDE_CODE_OAUTH_TOKEN="$CLAUDE_CODE_OAUTH_TOKEN" \
+       -e CLAUDE_CREDENTIALS_B64="${CLAUDE_CREDENTIALS_B64:-}" \
        -e GH_TOKEN="$GH_TOKEN" \
        -e FAFF_DRAIN_TIMEOUT="$DRAIN_TIMEOUT" \
        faff-cage; then
