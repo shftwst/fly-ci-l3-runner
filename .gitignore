@@ -1,0 +1,4 @@
+# Local secret source. Never committed; load into fly with `fly secrets import < .env`.
+.env
+.env.*
+*.credentials.json

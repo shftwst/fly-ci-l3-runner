@@ -3,7 +3,8 @@
 An always-on faff L3 runner on a fly.io Machine, with no GitHub Actions. The Machine
 wakes itself, drains the automation-eligible queue of a target repo with
 `/faff-beep-boop`, opens PRs, and parks anything it cannot decide. Point it at your
-repo, set three secrets, start one Machine, and leave.
+repo, set its secrets, start one Machine, and leave. It checks for work every minute,
+so a ticket you make eligible is picked up in about a minute, not on a long fixed cycle.
 
 ## How it meets the gate
 
@@ -18,7 +19,8 @@ because a microVM has no kernel overlay to mount.
 Layers:
 
 - The **Machine** (`Dockerfile`, `entrypoint.sh`) is the always-on host. It starts
-  dockerd, builds the cage image once, then loops: one drain per interval.
+  dockerd, builds the cage image once, then ticks every minute, starting a drain only
+  when one is not already running (a `flock` is the guard).
 - The **cage** (`cage/Dockerfile`, `drain.sh`) is the container each drain runs in. It
   carries the harness plus faff, runs `faff container-check --gate` first (passes),
   clones the target repo, runs `/faff-beep-boop`, and exits through `faff disposition`.
@@ -66,8 +68,8 @@ fly secrets set \
   GH_TOKEN="$(pass faff/gh)" \
   CLAUDE_CREDENTIALS_B64="$(base64 -w0 ~/.claude/.credentials.json)"
 
-# 3. Optional tuning (defaults: hourly, 290m ceiling per drain).
-fly secrets set FAFF_INTERVAL_SECS=3600 FAFF_DRAIN_TIMEOUT=290m
+# 3. Optional tuning (defaults: 60s tick, 290m ceiling per drain).
+fly secrets set FAFF_TICK_SECS=60 FAFF_DRAIN_TIMEOUT=290m
 
 # 4. Start ONE standalone Machine. Not `fly deploy` (its release-health wait can
 #    restart-loop a slow first boot).
@@ -76,6 +78,11 @@ fly machine run . --app fly-ci-l3-runner
 # 5. Watch it come up: dockerd, then the cage build, then the first drain.
 fly logs --app fly-ci-l3-runner
 ```
+
+If you keep the values in a gitignored `.env` (one `KEY=value` per line), load them in
+one shot with `fly secrets import < .env` instead of the `fly secrets set` above. The
+`.env` stays on your machine; only the values go to fly's encrypted secret store, never
+the file, and never the image. (`.env` is gitignored here so it cannot be committed.)
 
 Stop it when you land: `fly machine list` then `fly machine destroy <id> --force`.
 
@@ -86,12 +93,16 @@ Set as fly secrets or env:
 - `TARGET_REPO` (required): the repo to drain.
 - `CLAUDE_CODE_OAUTH_TOKEN`, `GH_TOKEN` (required): the seat token and the git token.
 - `CLAUDE_CREDENTIALS_B64` (required for Linear): the carried tracker credentials.
-- `FAFF_INTERVAL_SECS` (default 3600): seconds between drains.
-- `FAFF_DRAIN_TIMEOUT` (default 290m): wall-clock ceiling per drain.
+- `FAFF_TICK_SECS` (default 60): seconds between ticks. A tick starts a drain only if
+  none is running.
+- `FAFF_DRAIN_TIMEOUT` (default 290m): wall-clock ceiling for a single drain.
 
-Each drain is one `/faff-beep-boop` over the ready queue: it tidies, preps, and builds
-what is labelled and buildable, and parks the rest. A fresh clone per drain suits L3,
-which keeps no state between firings and pushes each branch at build-complete.
+**Triggering.** Every `FAFF_TICK_SECS` the Machine checks whether a drain is running. If
+one is, the tick skips; if not, it starts a fresh `/faff-beep-boop`, which re-checks
+eligibility and exits fast when there is nothing to do. So a ticket you make eligible is
+picked up within about a tick, and two drains never overlap. Each drain is one beep-boop
+over the ready queue (tidy, prep, build, park the rest); a fresh clone per drain suits
+L3, which keeps no state between firings and pushes each branch at build-complete.
 
 ## Notes
 
@@ -109,3 +120,8 @@ which keeps no state between firings and pushes each branch at build-complete.
 - Live output: the drain runs `claude -p` with `--output-format stream-json --verbose`,
   so `fly logs` shows the run turn-by-turn as it happens (line-delimited JSON events).
   The durable record is still the run-ledger plus the disposition exit, not the stream.
+- Idle cost of the 60s tick: when there is no work, a short beep-boop still spins up each
+  idle minute to check, which spends some seat/token and tracker calls continuously. For
+  a bounded away-from-keyboard window that is fine. For a permanent runner, a cheaper
+  pre-check (query the tracker for eligible tickets and only launch beep-boop on a hit)
+  would cut the idle churn; it is a sensible follow-up, not built here.
