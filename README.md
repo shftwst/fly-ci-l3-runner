@@ -60,7 +60,7 @@ the authorization. So you authorize it once on your own machine, then carry the 
 # On your machine, once, authorize Linear for Claude Code (opens a browser):
 claude mcp add --transport http linear https://mcp.linear.app/mcp
 # use any faff command that reads Linear so the OAuth flow completes, then:
-base64 -w0 ~/.claude/.credentials.json     # this is CLAUDE_CREDENTIALS_B64
+base64 < ~/.claude/.credentials.json | tr -d '\n'   # this is CLAUDE_CREDENTIALS_B64 (macOS + Linux)
 ```
 
 The cage writes that back to `~/.claude/.credentials.json` at drain time, so Linear
@@ -81,7 +81,7 @@ fly launch --no-deploy --name fly-ci-l3-runner --region lhr
 fly secrets set \
   TARGET_REPO="https://github.com/shftwst/faff" \
   GH_TOKEN="$(pass faff/gh)" \
-  CLAUDE_CREDENTIALS_B64="$(base64 -w0 ~/.claude/.credentials.json)" \
+  CLAUDE_CREDENTIALS_B64="$(base64 < ~/.claude/.credentials.json | tr -d '\n')" \
   LINEAR_API_KEY="$(pass linear/api)" \
   NVIDIA_API_KEY="$(pass faff/nvidia)" \
   GEMINI_API_KEY="$(pass faff/gemini)" \
