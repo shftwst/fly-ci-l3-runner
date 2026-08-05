@@ -44,15 +44,18 @@ rm -rf /home/faff/app
 git clone "$TARGET_REPO" /home/faff/app
 cd /home/faff/app
 
-# 4. The drain. One /faff-beep-boop run drains the ready queue (tidy, prep, build) and
-#    parks anything it cannot decide. Stream the run turn-by-turn so it shows live in
-#    `fly logs` (stream-json needs --verbose; each event is one line to stdout, which
-#    docker run passes up to the Machine and on to fly). The timeout is a wall-clock
-#    ceiling so a wedged run cannot hold the drain open forever.
+# 4. The drain. With FAFF_ISSUE_IDS set (the fast path), run beep-boop over just those
+#    issues, which skips the tidy + discovery pass; without it, run the full pipeline
+#    (tidy, prep, build). Either way beep-boop parks anything it cannot decide. Stream
+#    the run turn-by-turn so it shows live in `fly logs` (stream-json needs --verbose;
+#    each event is one line to stdout, which docker run passes up to the Machine and on
+#    to fly). The timeout is a wall-clock ceiling so a wedged run cannot hold open forever.
+PROMPT="/faff-beep-boop"
+[ -n "${FAFF_ISSUE_IDS:-}" ] && PROMPT="/faff-beep-boop ${FAFF_ISSUE_IDS}"
 FAFF_RUN_DIR="/home/faff/app/.faff/runs/run-$(date -u +%Y%m%d-%H%M%S)-fly-l3"
 export FAFF_RUN_DIR
 timeout "${FAFF_DRAIN_TIMEOUT:-290m}" \
-  claude -p "/faff-beep-boop" --output-format stream-json --verbose || true
+  claude -p "$PROMPT" --output-format stream-json --verbose || true
 
 # 5. Disposition is the red or green exit: non-zero if anything parked, errored, or
 #    needs attention. The container exit carries it so the runner loop can log it.

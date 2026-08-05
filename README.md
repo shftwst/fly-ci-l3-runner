@@ -3,8 +3,9 @@
 An always-on faff L3 runner on a fly.io Machine, with no GitHub Actions. The Machine
 wakes itself, drains the automation-eligible queue of a target repo with
 `/faff-beep-boop`, opens PRs, and parks anything it cannot decide. Point it at your
-repo, set its secrets, start one Machine, and leave. It checks for work every minute,
-so a ticket you make eligible is picked up in about a minute, not on a long fixed cycle.
+repo, set its secrets, start one Machine, and leave. It checks the tracker for eligible
+work every minute with a cheap query, so a ticket you make eligible is picked up in
+about a minute, without spinning anything up when there is nothing to do.
 
 ## How it meets the gate
 
@@ -19,11 +20,13 @@ because a microVM has no kernel overlay to mount.
 Layers:
 
 - The **Machine** (`Dockerfile`, `entrypoint.sh`) is the always-on host. It starts
-  dockerd, builds the cage image once, then ticks every minute, starting a drain only
-  when one is not already running (a `flock` is the guard).
+  dockerd, builds the cage image once, then runs two cadences under one `flock` (only
+  one drain at a time): a fast per-minute pre-check that, on a hit, builds just the
+  eligible tickets, and a slower full `/faff-beep-boop` for grooming and as a catch-all.
 - The **cage** (`cage/Dockerfile`, `drain.sh`) is the container each drain runs in. It
   carries the harness plus faff, runs `faff container-check --gate` first (passes),
-  clones the target repo, runs `/faff-beep-boop`, and exits through `faff disposition`.
+  clones the target repo, runs `/faff-beep-boop` (over the whole queue, or over the
+  specific issues the pre-check found), and exits through `faff disposition`.
 
 ## What you need first
 
@@ -35,6 +38,11 @@ Layers:
 - A `gh` token with push access to the target repo (for branches and PRs).
 - Linear tracker access carried in (see below). Without it, faff runs git-only and
   ignores your Linear issues.
+- A Linear personal API key for the per-minute pre-check (`LINEAR_API_KEY`), from
+  Linear's Settings > API > Personal API keys. This is separate from the MCP auth: the
+  pre-check is a lightweight tracker query, the MCP is how faff itself reads and writes
+  Linear. Optional; without it the fast pickup is off and the runner works on the
+  full-drain cadence only.
 
 ## Tracker (Linear)
 
@@ -66,10 +74,11 @@ fly secrets set \
   TARGET_REPO="https://github.com/shftwst/faff" \
   CLAUDE_CODE_OAUTH_TOKEN="$(pass faff/seat)" \
   GH_TOKEN="$(pass faff/gh)" \
-  CLAUDE_CREDENTIALS_B64="$(base64 -w0 ~/.claude/.credentials.json)"
+  CLAUDE_CREDENTIALS_B64="$(base64 -w0 ~/.claude/.credentials.json)" \
+  LINEAR_API_KEY="$(pass linear/api)"
 
-# 3. Optional tuning (defaults: 60s tick, 290m ceiling per drain).
-fly secrets set FAFF_TICK_SECS=60 FAFF_DRAIN_TIMEOUT=290m
+# 3. Optional tuning (defaults: 60s fast tick, 3600s full drain, 290m ceiling, team FAFF).
+fly secrets set FAFF_TICK_SECS=60 FAFF_FULL_SECS=3600 FAFF_DRAIN_TIMEOUT=290m FAFF_TEAM_KEY=FAFF
 
 # 4. Start ONE standalone Machine. Not `fly deploy` (its release-health wait can
 #    restart-loop a slow first boot).
@@ -93,16 +102,26 @@ Set as fly secrets or env:
 - `TARGET_REPO` (required): the repo to drain.
 - `CLAUDE_CODE_OAUTH_TOKEN`, `GH_TOKEN` (required): the seat token and the git token.
 - `CLAUDE_CREDENTIALS_B64` (required for Linear): the carried tracker credentials.
-- `FAFF_TICK_SECS` (default 60): seconds between ticks. A tick starts a drain only if
-  none is running.
+- `LINEAR_API_KEY` (enables the fast pre-check): a Linear personal API key.
+- `FAFF_TEAM_KEY` (default `FAFF`): the tracker team the pre-check queries.
+- `FAFF_TICK_SECS` (default 60): the fast pre-check cadence.
+- `FAFF_FULL_SECS` (default 3600): the full-drain (grooming + catch-all) cadence.
 - `FAFF_DRAIN_TIMEOUT` (default 290m): wall-clock ceiling for a single drain.
 
-**Triggering.** Every `FAFF_TICK_SECS` the Machine checks whether a drain is running. If
-one is, the tick skips; if not, it starts a fresh `/faff-beep-boop`, which re-checks
-eligibility and exits fast when there is nothing to do. So a ticket you make eligible is
-picked up within about a tick, and two drains never overlap. Each drain is one beep-boop
-over the ready queue (tidy, prep, build, park the rest); a fresh clone per drain suits
-L3, which keeps no state between firings and pushes each branch at build-complete.
+**Triggering.** Two cadences share one lock, so only one drain runs at a time:
+
+- **Fast (every `FAFF_TICK_SECS`):** a cheap Linear query for `faff-automate` issues in
+  Backlog or Todo. On a hit, it builds just those issues (`/faff-beep-boop <IDs>`, which
+  skips tidy). A ticket you make eligible is picked up within about a tick. An idle tick
+  is one API call, no container and no claude session, so leaving it running is cheap.
+- **Full (every `FAFF_FULL_SECS`):** a full `/faff-beep-boop` (tidy, discovery, build).
+  This grooms the backlog and catches anything the pre-check missed, so a wrong or
+  unavailable pre-check degrades to work on this cadence, never to silence. The first
+  tick runs one immediately, clearing any queued backlog at startup.
+
+A fresh clone per drain suits L3, which keeps no state between firings and pushes each
+branch at build-complete. Without `LINEAR_API_KEY` the fast cadence is off and only the
+full cadence runs (higher pickup latency, still correct).
 
 ## Notes
 
@@ -120,8 +139,10 @@ L3, which keeps no state between firings and pushes each branch at build-complet
 - Live output: the drain runs `claude -p` with `--output-format stream-json --verbose`,
   so `fly logs` shows the run turn-by-turn as it happens (line-delimited JSON events).
   The durable record is still the run-ledger plus the disposition exit, not the stream.
-- Idle cost of the 60s tick: when there is no work, a short beep-boop still spins up each
-  idle minute to check, which spends some seat/token and tracker calls continuously. For
-  a bounded away-from-keyboard window that is fine. For a permanent runner, a cheaper
-  pre-check (query the tracker for eligible tickets and only launch beep-boop on a hit)
-  would cut the idle churn; it is a sensible follow-up, not built here.
+- Idle cost: with `LINEAR_API_KEY` set, an idle minute is one Linear API call, so this is
+  cheap to leave running. The tidy grooming that a full drain does runs on the
+  `FAFF_FULL_SECS` cadence (hourly by default), not every minute.
+- Pre-check scope: the fast query matches `faff-automate` issues in Backlog or Todo for
+  `FAFF_TEAM_KEY`. It is an optimisation, not the safety net; the full drain's own
+  discovery is the authority, so a subtly-wrong query only delays work to the full
+  cadence, it never drops it.
