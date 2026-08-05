@@ -52,7 +52,14 @@ docker build -t faff-cage /cage
 eligible_ids() {
   [ -n "${LINEAR_API_KEY:-}" ] || return 2
   local q resp
-  q='{"query":"query($t:String!){issues(first:50,filter:{labels:{some:{name:{eq:\"faff-automate\"}}},team:{key:{eq:$t}},state:{type:{in:[\"backlog\",\"unstarted\"]}}}){nodes{identifier}}}","variables":{"t":"'"$TEAM_KEY"'"}}'
+  # Genuinely-actionable = faff-automate present AND NOT parked/held. Excluding
+  # faff-parked / faff-automation-hold is load-bearing: parking keeps faff-automate and
+  # leaves the issue in Backlog/Todo, so without this exclusion a parked issue keeps
+  # matching, and the tick fires a full (expensive) drain every minute that beep-boop's
+  # own gate then no-ops — burning a model session per tick for zero product. With it,
+  # once everything actionable is parked the query returns empty and idle ticks cost one
+  # API call. (Linear label-exclusion idiom: every label's name nin the exclusion set.)
+  q='{"query":"query($t:String!){issues(first:50,filter:{and:[{labels:{some:{name:{eq:\"faff-automate\"}}}},{labels:{every:{name:{nin:[\"faff-parked\",\"faff-automation-hold\"]}}}}],team:{key:{eq:$t}},state:{type:{in:[\"backlog\",\"unstarted\"]}}}){nodes{identifier}}}","variables":{"t":"'"$TEAM_KEY"'"}}'
   resp=$(curl -sS --max-time 20 -X POST https://api.linear.app/graphql \
            -H "Authorization: $LINEAR_API_KEY" -H "Content-Type: application/json" \
            -d "$q") || return 2
