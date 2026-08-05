@@ -79,6 +79,9 @@ run_drain() {
        -e FAFF_EFFORT="${FAFF_EFFORT:-high}" \
        -e FAFF_WINDOW_HOURS="${FAFF_WINDOW_HOURS:-5}" \
        -e FAFF_WINDOW_TOKENS="${FAFF_WINDOW_TOKENS:?set FAFF_WINDOW_TOKENS: the 5h window token ceiling}" \
+       -e FAFF_REVIEW_SLOT="${FAFF_REVIEW_SLOT:-}" \
+       -e FAFF_SPEC_REVIEW_SLOT="${FAFF_SPEC_REVIEW_SLOT:-}" \
+       -e FAFF_DROP_BACKENDS="${FAFF_DROP_BACKENDS:-}" \
        faff-cage; then
     echo "=== $(date -u +%FT%TZ) drain clean (disposition exit 0) ==="
   else

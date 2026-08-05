@@ -63,6 +63,31 @@ cd /home/faff/app
 "$faff" config set --force budget.window.tokens "${FAFF_WINDOW_TOKENS:?set FAFF_WINDOW_TOKENS: the 5h window token ceiling}" >/dev/null
 "$faff" config set --force budget.at_ceiling park-until-window-reset >/dev/null
 
+# Optional review-slot overrides. The target's committed spec_review (prep) and review
+# (graft) slots may both be heavy adversarial reviewers whose free-tier backends exhaust
+# their daily quota under a sustained runner's back-to-back reviews (fine for sporadic
+# local use, not for a full drain). Overriding only one leaves the other phase to hit the
+# same wall, so both are overridable. Set to the lighter in-session faffter-noon variants;
+# unset -> the committed slot is used unchanged.
+[ -n "${FAFF_REVIEW_SLOT:-}" ]      && "$faff" config set --force slots.review "$FAFF_REVIEW_SLOT" >/dev/null
+[ -n "${FAFF_SPEC_REVIEW_SLOT:-}" ] && "$faff" config set --force slots.spec_review "$FAFF_SPEC_REVIEW_SLOT" >/dev/null
+
+# Drop named adversarial-review backends whose COMPLETIONS hang or fail from this
+# environment (config set can't rewrite the refs list, so patch the cloned .faffrc). The
+# nvidia backend's /models check passes but its chat completions time out from fly, and
+# it sits first in the chain, so every review waits out its full deadline slice before
+# falling through to the working backends. FAFF_DROP_BACKENDS is a comma-separated list of
+# backend ref names to remove; unset -> the committed chain is used unchanged.
+if [ -n "${FAFF_DROP_BACKENDS:-}" ]; then
+  rc=$("$faff" config path 2>/dev/null | head -1)
+  [ -f "$rc" ] || rc=.faffrc.yaml
+  IFS=','; for b in $FAFF_DROP_BACKENDS; do
+    b=$(printf '%s' "$b" | tr -d '[:space:]')
+    [ -n "$b" ] && sed -i "/^[[:space:]]*-[[:space:]]*${b}[[:space:]]*$/d" "$rc"
+  done; unset IFS
+  echo "review backends dropped for this environment: $FAFF_DROP_BACKENDS"
+fi
+
 # 4. The drain. With FAFF_ISSUE_IDS set (the fast path), run beep-boop over just those
 #    issues, which skips the tidy + discovery pass; without it, run the full pipeline
 #    (tidy, prep, build). Either way beep-boop parks anything it cannot decide. Stream
