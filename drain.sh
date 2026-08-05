@@ -52,6 +52,22 @@ rm -rf /home/faff/app
 git clone "$TARGET_REPO" /home/faff/app
 cd /home/faff/app
 
+# 3a. Persist faff's gitignored state across the fresh-clone-per-drain. The clone brings
+#     .faff/anchors (committed to git) but not .faff/resume / .faff/runs (gitignored), so
+#     point those at the mounted state volume — the run-agnostic resume store (FAFF-403)
+#     and the run-dirs then survive across drains, and a held build resumes next drain
+#     exactly as it would from a persistent local working dir. Anchors stay real committed
+#     files (untouched). If the volume isn't mounted, fall back to plain local dirs (no
+#     cross-drain persistence, unchanged behaviour) rather than failing the drain.
+if [ -d /home/faff/state ]; then
+  mkdir -p /home/faff/state/resume /home/faff/state/runs
+  mkdir -p /home/faff/app/.faff
+  rm -rf /home/faff/app/.faff/resume /home/faff/app/.faff/runs 2>/dev/null || true
+  ln -sfn /home/faff/state/resume /home/faff/app/.faff/resume
+  ln -sfn /home/faff/state/runs   /home/faff/app/.faff/runs
+  echo "resume state persisted on the mounted volume (.faff/resume, .faff/runs)."
+fi
+
 # 3b. Budget: a rolling window governor aligned to the subscription 5h usage window. Both
 #     an hours figure and a token ceiling are required, or the window is inert. at_ceiling
 #     park-until-window-reset makes an unattended run PARK when the window's token ceiling

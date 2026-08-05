@@ -19,6 +19,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 USER faff
 WORKDIR /home/faff
 
+# Mount point for the persistent state volume (faff's gitignored resume store + run-dirs).
+# Created faff-owned so the named volume, when first mounted here, inherits faff ownership
+# (docker seeds a fresh volume from the image path's perms) and drain.sh can write to it.
+RUN mkdir -p /home/faff/state
+
 # faff-user layer: install faff via its plugin marketplace (the supported consumer path,
 # not the repo's dev-only link-skills), and register the hosted Linear MCP that faff's
 # skills call by name. The MCP is OAuth; drain.sh supplies the carried mcpOAuth token at

@@ -46,6 +46,13 @@ echo "dockerd up."
 echo "building the cage image ..."
 docker build -t faff-cage /cage
 
+# 2b. Persistent state volume for faff's gitignored resume store + run-dirs. A named volume
+#     lives under /var/lib/docker/volumes, which is on the mounted 30GB volume, so it
+#     survives Machine restarts. Mounted into each cage so .faff/resume + .faff/runs persist
+#     across the fresh-clone-per-drain, letting faff resume held builds exactly as it does
+#     from a persistent local working dir. (Anchors are NOT here — they're committed to git.)
+docker volume create faff-state >/dev/null
+
 # 3. Pre-check: the eligible faff-automate issues in Backlog/Todo for the team. Prints
 #    their identifiers space-separated (empty = none). Exit 2 = unavailable (no
 #    LINEAR_API_KEY, or the query failed); the caller then relies on the full cadence.
@@ -75,6 +82,7 @@ run_drain() {
   if [ -n "$ids" ]; then label="build [$ids]"; else label="full drain (tidy + discovery + build)"; fi
   echo "=== $(date -u +%FT%TZ) $label ==="
   if docker run --rm \
+       -v faff-state:/home/faff/state \
        -e TARGET_REPO="$TARGET_REPO" \
        -e CLAUDE_CODE_OAUTH_TOKEN="${CLAUDE_CODE_OAUTH_TOKEN:-}" \
        -e CLAUDE_CREDENTIALS_B64="${CLAUDE_CREDENTIALS_B64:-}" \
