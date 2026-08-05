@@ -71,7 +71,11 @@ PROMPT="/faff-beep-boop"
 [ -n "${FAFF_ISSUE_IDS:-}" ] && PROMPT="/faff-beep-boop ${FAFF_ISSUE_IDS}"
 FAFF_RUN_DIR="/home/faff/app/.faff/runs/run-$(date -u +%Y%m%d-%H%M%S)-fly-l3"
 export FAFF_RUN_DIR
-timeout "${FAFF_DRAIN_TIMEOUT:-290m}" \
+# Hard-timeout defaults ABOVE the budget window (window + 1h) so the window governor
+# parks gracefully before this SIGKILL can cull the drain. entrypoint passes an explicit
+# value; this fallback keeps the property if drain.sh is run standalone.
+DRAIN_TIMEOUT="${FAFF_DRAIN_TIMEOUT:-$(( (${FAFF_WINDOW_HOURS:-5} + 1) * 60 ))m}"
+timeout "$DRAIN_TIMEOUT" \
   claude -p "$PROMPT" \
     --model "${FAFF_MODEL:-claude-opus-4-8}" --effort "${FAFF_EFFORT:-high}" \
     --output-format stream-json --verbose || true

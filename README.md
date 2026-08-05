@@ -97,9 +97,11 @@ fly secrets set \
 # 3. The 5h subscription-window budget (required — the drain sets it in the clone):
 fly secrets set FAFF_WINDOW_HOURS=5 FAFF_WINDOW_TOKENS=<your 5h token ceiling>
 
-# 4. Optional tuning (defaults: 60s fast tick, 12h full drain, 290m ceiling, team FAFF,
-#    model claude-opus-4-8, effort high).
-fly secrets set FAFF_TICK_SECS=60 FAFF_FULL_SECS=43200 FAFF_DRAIN_TIMEOUT=290m \
+# 4. Optional tuning (defaults: 60s fast tick, 12h full drain, hard-timeout = window+1h,
+#    team FAFF, model claude-opus-4-8, effort high). Leave FAFF_DRAIN_TIMEOUT unset to keep
+#    it derived above the window; only set it if you deliberately want a different ceiling
+#    (and keep it > FAFF_WINDOW_HOURS, or the SIGKILL culls the drain before it can park).
+fly secrets set FAFF_TICK_SECS=60 FAFF_FULL_SECS=43200 \
   FAFF_TEAM_KEY=FAFF FAFF_MODEL=claude-opus-4-8 FAFF_EFFORT=high
 
 # 4. Build the image on fly's remote builder and push it. This works from macOS with no
@@ -145,7 +147,12 @@ Set as fly secrets or env:
 - `FAFF_TEAM_KEY` (default `FAFF`): the tracker team the pre-check queries.
 - `FAFF_TICK_SECS` (default 60): the fast pre-check cadence.
 - `FAFF_FULL_SECS` (default 43200 = 12h): the full-drain (grooming + catch-all) cadence.
-- `FAFF_DRAIN_TIMEOUT` (default 290m): wall-clock ceiling for a single drain.
+- `FAFF_DRAIN_TIMEOUT` (default window + 1h): last-resort hard-timeout for a single drain,
+  derived above the budget window so the window parks gracefully before this SIGKILL culls
+  the drain. Only set it explicitly if you want a different ceiling, and keep it above
+  `FAFF_WINDOW_HOURS`. Note the budget window counts all token classes including cache
+  reads, which dominate on Opus, so size `FAFF_WINDOW_TOKENS` in hundreds of millions, not
+  single millions (faff's own all-run backstop is 3000M for comparison).
 
 **Triggering.** Two cadences share one lock, so only one drain runs at a time:
 

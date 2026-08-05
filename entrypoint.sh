@@ -22,9 +22,15 @@ set -euo pipefail
 
 TICK_SECS="${FAFF_TICK_SECS:-60}"             # fast pre-check cadence
 FULL_SECS="${FAFF_FULL_SECS:-43200}"          # full drain (tidy + discovery) cadence (12h)
-DRAIN_TIMEOUT="${FAFF_DRAIN_TIMEOUT:-290m}"   # wall-clock ceiling for a single drain
+WINDOW_HOURS="${FAFF_WINDOW_HOURS:-5}"        # subscription budget-window length
+# The wall-clock ceiling is a LAST-RESORT hang catch, deliberately ABOVE the budget
+# window so the window governor parks gracefully (writing park-until-window-reset +
+# resume_at at a between-units checkpoint) before this hard SIGKILL can cull the drain.
+# Default = window + 1h; overridable, but a value <= the window would defeat the park.
+DRAIN_TIMEOUT="${FAFF_DRAIN_TIMEOUT:-$(( (WINDOW_HOURS + 1) * 60 ))m}"
 TEAM_KEY="${FAFF_TEAM_KEY:-FAFF}"             # tracker team key for the pre-check query
 LOCK="/tmp/faff-drain.lock"
+echo "budget window ${WINDOW_HOURS}h; drain hard-timeout ${DRAIN_TIMEOUT} (above the window, so the window parks before the timeout culls)."
 
 # 1. Start dockerd on the vfs storage driver. A Firecracker microVM has no kernel
 #    overlay for a nested engine to mount, so vfs is the driver that works on fly.
