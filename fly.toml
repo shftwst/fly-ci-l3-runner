@@ -14,6 +14,14 @@ primary_region = "lhr"   # set your region
 [build]
   dockerfile = "Dockerfile"
 
+# The Machine's docker engine stores images + per-drain container copies here. It runs on
+# the vfs driver (a microVM has no kernel overlay), which is space-hungry, so /var/lib/docker
+# lives on a volume rather than the ~8GB ephemeral rootfs. This also persists the built cage
+# image across Machine restarts, so only the first boot pays the cage-build cost.
+[mounts]
+  source = "faff_docker"
+  destination = "/var/lib/docker"
+
 # dockerd on vfs duplicates image layers, so give it headroom. 2gb RAM and 2 shared
 # CPUs matched the earlier fly rig; bump if the cage build or a drain is starved.
 [[vm]]

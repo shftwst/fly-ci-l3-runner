@@ -57,9 +57,11 @@ cd /home/faff/app
 #     park-until-window-reset makes an unattended run PARK when the window's token ceiling
 #     is hit and resume when the window resets, instead of burning into overage. Written
 #     into this ephemeral clone only, never committed to the target.
-"$faff" config set budget.window.hours "${FAFF_WINDOW_HOURS:-5}" >/dev/null
-"$faff" config set budget.window.tokens "${FAFF_WINDOW_TOKENS:?set FAFF_WINDOW_TOKENS: the 5h window token ceiling}" >/dev/null
-"$faff" config set budget.at_ceiling park-until-window-reset >/dev/null
+# --force: the target's committed .faffrc may already set these (faff's own sets
+# at_ceiling: escalate), and config set refuses to overwrite an existing value without it.
+"$faff" config set --force budget.window.hours "${FAFF_WINDOW_HOURS:-5}" >/dev/null
+"$faff" config set --force budget.window.tokens "${FAFF_WINDOW_TOKENS:?set FAFF_WINDOW_TOKENS: the 5h window token ceiling}" >/dev/null
+"$faff" config set --force budget.at_ceiling park-until-window-reset >/dev/null
 
 # 4. The drain. With FAFF_ISSUE_IDS set (the fast path), run beep-boop over just those
 #    issues, which skips the tidy + discovery pass; without it, run the full pipeline
@@ -78,6 +80,7 @@ DRAIN_TIMEOUT="${FAFF_DRAIN_TIMEOUT:-$(( (${FAFF_WINDOW_HOURS:-5} + 1) * 60 ))m}
 timeout "$DRAIN_TIMEOUT" \
   claude -p "$PROMPT" \
     --model "${FAFF_MODEL:-claude-opus-4-8}" --effort "${FAFF_EFFORT:-high}" \
+    --dangerously-skip-permissions \
     --output-format stream-json --verbose || true
 
 # 5. Disposition is the red or green exit: non-zero if anything parked, errored, or
