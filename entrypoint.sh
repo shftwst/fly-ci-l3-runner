@@ -68,12 +68,18 @@ eligible_ids() {
   # issue keeps matching and the tick fires a full (expensive) drain every minute that
   # beep-boop's own gate then no-ops — a model session per tick for zero product. With both,
   # once nothing actionable remains the query returns empty and idle ticks cost one API call.
-  q='{"query":"query($t:String!){issues(first:50,filter:{and:[{labels:{some:{name:{eq:\"faff-automate\"}}}},{labels:{every:{name:{nin:[\"faff-parked\",\"faff-automation-hold\"]}}}}],team:{key:{eq:$t}},state:{type:{in:[\"backlog\",\"unstarted\"]}}}){nodes{identifier}}}","variables":{"t":"'"$TEAM_KEY"'"}}'
+  # Also drop OPEN-BLOCKED issues: an issue blocked by an incomplete issue can't launch, so
+  # firing on it is a near-no-op every tick until its blocker clears. Linear's filter can't
+  # condition on the blocker's STATE, so fetch each candidate's blockers (inverseRelations of
+  # type "blocks") and drop any candidate with a blocker not in a resolved state
+  # (completed/canceled/duplicate) — client-side, in jq. A Done blocker means unblocked, so
+  # it stays eligible; only genuinely-still-blocked issues are excluded.
+  q='{"query":"query($t:String!){issues(first:50,filter:{and:[{labels:{some:{name:{eq:\"faff-automate\"}}}},{labels:{every:{name:{nin:[\"faff-parked\",\"faff-automation-hold\"]}}}}],team:{key:{eq:$t}},state:{type:{in:[\"backlog\",\"unstarted\"]}}}){nodes{identifier inverseRelations{nodes{type issue{state{type}}}}}}}","variables":{"t":"'"$TEAM_KEY"'"}}'
   resp=$(curl -sS --max-time 20 -X POST https://api.linear.app/graphql \
            -H "Authorization: $LINEAR_API_KEY" -H "Content-Type: application/json" \
            -d "$q") || return 2
   echo "$resp" | jq -e '.data.issues.nodes' >/dev/null 2>&1 || return 2
-  echo "$resp" | jq -r '.data.issues.nodes[].identifier' | tr '\n' ' ' | sed 's/ *$//'
+  echo "$resp" | jq -r '[.data.issues.nodes[] | select(([.inverseRelations.nodes[]? | select(.type=="blocks") | .issue.state.type as $s | select((["completed","canceled","duplicate"]|index($s))==null)] | length)==0) | .identifier] | join(" ")'
 }
 
 # 4. Run one drain in a fresh cage container. $1 = explicit issue IDs (empty = full).
