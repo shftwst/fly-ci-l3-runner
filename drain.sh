@@ -7,9 +7,11 @@ set -euo pipefail
 
 : "${TARGET_REPO:?set TARGET_REPO, e.g. https://github.com/you/app}"
 : "${GH_TOKEN:?set a gh token with push access to the target repo}"
-# Model auth: the seat token if provided, otherwise the carried credentials file (which
-# holds the account auth too). Drop an empty seat-token env so it never shadows the file.
-[ -n "${CLAUDE_CODE_OAUTH_TOKEN:-}" ] || unset CLAUDE_CODE_OAUTH_TOKEN
+# Model auth is the long-lived seat token (from `claude setup-token`), REQUIRED. CI must
+# never authenticate the model from the interactive credentials file: that file's account
+# section carries a ROTATING refresh token, and a CI process refreshing it would race the
+# operator's own sessions and break auth on one side. The long-lived token does not rotate.
+: "${CLAUDE_CODE_OAUTH_TOKEN:?set the long-lived seat token from 'claude setup-token' (CI must not use interactive credentials for model auth)}"
 
 # Resolve the faff CLI. faff is installed as a plugin, so its binary lives under the
 # plugin dir, not on PATH. Resolve it the way faff's own skills do.
@@ -17,16 +19,20 @@ faff=$(command -v faff || true)
 [ -x "$faff" ] || faff=$(find "$HOME/.claude" -path '*/skills/faff/bin/faff' -type f 2>/dev/null | head -1)
 [ -x "$faff" ] || { echo "faff CLI not found after plugin install"; exit 1; }
 
-# 0. Tracker auth. faff drives Linear through the hosted Linear MCP, which is OAuth,
-#    so there is no browser here to authorize it. Carry the pre-authorized credentials
-#    instead: CLAUDE_CREDENTIALS_B64 is base64 of your ~/.claude/.credentials.json,
-#    produced after you have authorized Linear locally (see the README). Without it the
-#    Linear MCP stays unauthenticated and faff falls back to git-only, which ignores
-#    your Linear issues.
+# 0. Tracker auth ONLY. faff drives Linear through the hosted Linear MCP (OAuth), and
+#    there is no browser here to authorize it, so carry the pre-authorized token:
+#    CLAUDE_CREDENTIALS_B64 is base64 of your ~/.claude/.credentials.json. Write back
+#    ONLY its mcpOAuth (tracker) section, never the claudeAiOauth account section, so the
+#    rotating account refresh token never lands in CI and cannot race your sessions. Model
+#    auth stays entirely on CLAUDE_CODE_OAUTH_TOKEN above. Without this the Linear MCP is
+#    unauthenticated and faff falls back to git-only, ignoring your Linear issues.
 if [ -n "${CLAUDE_CREDENTIALS_B64:-}" ]; then
   mkdir -p "$HOME/.claude"
-  printf '%s' "$CLAUDE_CREDENTIALS_B64" | base64 -d > "$HOME/.claude/.credentials.json"
-  chmod 600 "$HOME/.claude/.credentials.json"
+  printf '%s' "$CLAUDE_CREDENTIALS_B64" | base64 -d > /tmp/creds.full.json
+  node -e 'const fs=require("fs");let j={};try{j=JSON.parse(fs.readFileSync("/tmp/creds.full.json","utf8"))}catch(e){};const out=j.mcpOAuth?{mcpOAuth:j.mcpOAuth}:{};fs.writeFileSync(process.env.HOME+"/.claude/.credentials.json",JSON.stringify(out));if(!j.mcpOAuth)process.exit(3);' \
+    || echo "WARN: credentials blob had no mcpOAuth section; Linear MCP will be unauthenticated (git-only)."
+  rm -f /tmp/creds.full.json
+  chmod 600 "$HOME/.claude/.credentials.json" 2>/dev/null || true
 fi
 if claude mcp list 2>/dev/null | grep -qiE "linear.*connected"; then
   echo "tracker: Linear MCP connected."

@@ -15,11 +15,10 @@ set -euo pipefail
 
 : "${TARGET_REPO:?set TARGET_REPO as a fly secret, e.g. https://github.com/you/app}"
 : "${GH_TOKEN:?set a gh token as a fly secret}"
-# The model auth can come from either the seat token or the carried credentials file
-# (which also contains the account auth). Require at least one.
-if [ -z "${CLAUDE_CODE_OAUTH_TOKEN:-}" ] && [ -z "${CLAUDE_CREDENTIALS_B64:-}" ]; then
-  echo "set CLAUDE_CODE_OAUTH_TOKEN, or CLAUDE_CREDENTIALS_B64 (which carries the seat auth too)"; exit 1
-fi
+# Model auth: the long-lived seat token from `claude setup-token`, REQUIRED. CI must not
+# use interactive credentials for the model (their rotating refresh token races the
+# operator's sessions). CLAUDE_CREDENTIALS_B64 is separate and for the Linear MCP only.
+: "${CLAUDE_CODE_OAUTH_TOKEN:?set the long-lived seat token from 'claude setup-token'}"
 
 TICK_SECS="${FAFF_TICK_SECS:-60}"             # fast pre-check cadence
 FULL_SECS="${FAFF_FULL_SECS:-3600}"           # full drain (tidy + discovery) cadence

@@ -34,10 +34,14 @@ Layers:
 - A target repo whose issues you want drained, with the ones you want built labelled
   `faff-automate`. Nothing runs without that label. This can be the faff repo itself:
   faff draining faff at L3 is a supported case (the self-directed refusal is L4-only).
-- A long-lived seat token: `claude setup-token` gives you a `CLAUDE_CODE_OAUTH_TOKEN`.
+- A long-lived seat token for the model: run `claude setup-token` on your machine, which
+  gives you a `CLAUDE_CODE_OAUTH_TOKEN`. Use this, not an interactive login, for CI. The
+  interactive credentials carry a rotating refresh token, and a CI process refreshing it
+  would race your own sessions and break auth on one side; the long-lived token does not
+  rotate. The runner requires this and uses it for the model only.
 - A `gh` token with push access to the target repo (for branches and PRs).
-- Linear tracker access carried in (see below). Without it, faff runs git-only and
-  ignores your Linear issues.
+- Linear tracker access carried in (see below), which is separate from the seat token and
+  used only for the Linear MCP. Without it, faff runs git-only and ignores Linear issues.
 - A Linear personal API key for the per-minute pre-check (`LINEAR_API_KEY`), from
   Linear's Settings > API > Personal API keys. This is separate from the MCP auth: the
   pre-check is a lightweight tracker query, the MCP is how faff itself reads and writes
@@ -63,8 +67,11 @@ claude mcp add --transport http linear https://mcp.linear.app/mcp
 base64 < ~/.claude/.credentials.json | tr -d '\n'   # this is CLAUDE_CREDENTIALS_B64 (macOS + Linux)
 ```
 
-The cage writes that back to `~/.claude/.credentials.json` at drain time, so Linear
-connects headlessly. This carried token is the one fragile part of the runner: if
+The cage writes back **only** the `mcpOAuth` (Linear) section of that file, never the
+`claudeAiOauth` account section, so the account's rotating refresh token never lands in
+CI and cannot race your sessions. Model auth stays entirely on the long-lived
+`CLAUDE_CODE_OAUTH_TOKEN`. So Linear connects headlessly. This carried token is the one
+fragile part of the runner: if
 Linear's OAuth token expires and cannot refresh headlessly, the runner drops to git-only
 until you refresh it. Watch the drain log for the `tracker: Linear MCP connected` line.
 
@@ -75,12 +82,12 @@ until you refresh it. Watch the drain log for the `tracker: Linear MCP connected
 fly launch --no-deploy --name fly-ci-l3-runner --region lhr
 
 # 2. Set the secrets. These never enter the image or git.
-#    CLAUDE_CREDENTIALS_B64 carries the seat auth too, so a separate CLAUDE_CODE_OAUTH_TOKEN
-#    is not needed; set the seat token instead of the credentials file only if you do not
-#    use Linear.
+#    CLAUDE_CODE_OAUTH_TOKEN is the long-lived seat (model) auth; CLAUDE_CREDENTIALS_B64 is
+#    the Linear MCP auth only. They are distinct jobs and both are needed to drain faff.
 fly secrets set \
   TARGET_REPO="https://github.com/shftwst/faff" \
   GH_TOKEN="$(pass faff/gh)" \
+  CLAUDE_CODE_OAUTH_TOKEN="$(pass faff/seat)" \
   CLAUDE_CREDENTIALS_B64="$(base64 < ~/.claude/.credentials.json | tr -d '\n')" \
   LINEAR_API_KEY="$(pass linear/api)" \
   NVIDIA_API_KEY="$(pass faff/nvidia)" \
@@ -116,9 +123,10 @@ Set as fly secrets or env:
 
 - `TARGET_REPO` (required): the repo to drain.
 - `GH_TOKEN` (required): a git token with push access, for branches and PRs.
-- `CLAUDE_CODE_OAUTH_TOKEN` or `CLAUDE_CREDENTIALS_B64` (one required): the model auth.
-  The credentials file carries the seat auth too, so if you set it you do not also need
-  the seat token. `CLAUDE_CREDENTIALS_B64` is additionally what connects the Linear MCP.
+- `CLAUDE_CODE_OAUTH_TOKEN` (required): the long-lived seat token (`claude setup-token`),
+  used for the model only. Not the interactive credentials (those rotate and would race).
+- `CLAUDE_CREDENTIALS_B64` (required for Linear): base64 of `~/.claude/.credentials.json`;
+  the cage uses only its `mcpOAuth` section, to connect the Linear MCP.
 - `LINEAR_API_KEY` (enables the fast pre-check): a Linear personal API key.
 - `NVIDIA_API_KEY` / `GEMINI_API_KEY` / `OPENROUTER_API_KEY`: review-backend keys the
   target's review slot needs (required for faff; builds park at review without them).
