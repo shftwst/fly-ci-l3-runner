@@ -52,15 +52,16 @@ docker build -t faff-cage /cage
 eligible_ids() {
   [ -n "${LINEAR_API_KEY:-}" ] || return 2
   local q resp
-  # Genuinely-actionable = faff-automate present AND NOT parked/held AND not done/cancelled.
-  # Excluding faff-parked / faff-automation-hold is load-bearing: parking keeps faff-automate
-  # and leaves the issue in Backlog/Todo, so without this a parked issue keeps matching and
-  # the tick fires a full (expensive) drain every minute that beep-boop's own gate then
-  # no-ops — a model session per tick for zero product. The state filter already excludes
-  # done/cancelled, and completedAt/canceledAt {null:true} makes that explicit and robust to
-  # odd state typings (canceledAt also covers Duplicate). With all this, once everything
-  # actionable is parked/done the query returns empty and idle ticks cost one API call.
-  q='{"query":"query($t:String!){issues(first:50,filter:{and:[{labels:{some:{name:{eq:\"faff-automate\"}}}},{labels:{every:{name:{nin:[\"faff-parked\",\"faff-automation-hold\"]}}}}],team:{key:{eq:$t}},state:{type:{in:[\"backlog\",\"unstarted\"]}},completedAt:{null:true},canceledAt:{null:true}}){nodes{identifier}}}","variables":{"t":"'"$TEAM_KEY"'"}}'
+  # Genuinely-actionable = faff-automate present, NOT parked/held, and in a fresh state.
+  # state.type in [backlog, unstarted] means only Backlog + Todo pass — done (completed),
+  # cancelled (canceled), duplicate (duplicate), and in-progress/in-review (started) are all
+  # excluded by TYPE (Linear status names map onto these fixed types; "unstarted" is Todo).
+  # The label exclusion is the load-bearing fix: parking keeps faff-automate and leaves the
+  # issue in Backlog/Todo, so without excluding faff-parked / faff-automation-hold a parked
+  # issue keeps matching and the tick fires a full (expensive) drain every minute that
+  # beep-boop's own gate then no-ops — a model session per tick for zero product. With both,
+  # once nothing actionable remains the query returns empty and idle ticks cost one API call.
+  q='{"query":"query($t:String!){issues(first:50,filter:{and:[{labels:{some:{name:{eq:\"faff-automate\"}}}},{labels:{every:{name:{nin:[\"faff-parked\",\"faff-automation-hold\"]}}}}],team:{key:{eq:$t}},state:{type:{in:[\"backlog\",\"unstarted\"]}}}){nodes{identifier}}}","variables":{"t":"'"$TEAM_KEY"'"}}'
   resp=$(curl -sS --max-time 20 -X POST https://api.linear.app/graphql \
            -H "Authorization: $LINEAR_API_KEY" -H "Content-Type: application/json" \
            -d "$q") || return 2
