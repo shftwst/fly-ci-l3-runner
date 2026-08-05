@@ -21,7 +21,7 @@ set -euo pipefail
 : "${CLAUDE_CODE_OAUTH_TOKEN:?set the long-lived seat token from 'claude setup-token'}"
 
 TICK_SECS="${FAFF_TICK_SECS:-60}"             # fast pre-check cadence
-FULL_SECS="${FAFF_FULL_SECS:-3600}"           # full drain (tidy + discovery) cadence
+FULL_SECS="${FAFF_FULL_SECS:-43200}"          # full drain (tidy + discovery) cadence (12h)
 DRAIN_TIMEOUT="${FAFF_DRAIN_TIMEOUT:-290m}"   # wall-clock ceiling for a single drain
 TEAM_KEY="${FAFF_TEAM_KEY:-FAFF}"             # tracker team key for the pre-check query
 LOCK="/tmp/faff-drain.lock"
@@ -69,6 +69,10 @@ run_drain() {
        -e NVIDIA_API_KEY="${NVIDIA_API_KEY:-}" \
        -e GEMINI_API_KEY="${GEMINI_API_KEY:-}" \
        -e OPENROUTER_API_KEY="${OPENROUTER_API_KEY:-}" \
+       -e FAFF_MODEL="${FAFF_MODEL:-claude-opus-4-8}" \
+       -e FAFF_EFFORT="${FAFF_EFFORT:-high}" \
+       -e FAFF_WINDOW_HOURS="${FAFF_WINDOW_HOURS:-5}" \
+       -e FAFF_WINDOW_TOKENS="${FAFF_WINDOW_TOKENS:?set FAFF_WINDOW_TOKENS: the 5h window token ceiling}" \
        faff-cage; then
     echo "=== $(date -u +%FT%TZ) drain clean (disposition exit 0) ==="
   else

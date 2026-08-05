@@ -94,8 +94,13 @@ fly secrets set \
   GEMINI_API_KEY="$(pass faff/gemini)" \
   OPENROUTER_API_KEY="$(pass faff/openrouter)"
 
-# 3. Optional tuning (defaults: 60s fast tick, 3600s full drain, 290m ceiling, team FAFF).
-fly secrets set FAFF_TICK_SECS=60 FAFF_FULL_SECS=3600 FAFF_DRAIN_TIMEOUT=290m FAFF_TEAM_KEY=FAFF
+# 3. The 5h subscription-window budget (required — the drain sets it in the clone):
+fly secrets set FAFF_WINDOW_HOURS=5 FAFF_WINDOW_TOKENS=<your 5h token ceiling>
+
+# 4. Optional tuning (defaults: 60s fast tick, 12h full drain, 290m ceiling, team FAFF,
+#    model claude-opus-4-8, effort high).
+fly secrets set FAFF_TICK_SECS=60 FAFF_FULL_SECS=43200 FAFF_DRAIN_TIMEOUT=290m \
+  FAFF_TEAM_KEY=FAFF FAFF_MODEL=claude-opus-4-8 FAFF_EFFORT=high
 
 # 4. Build the image on fly's remote builder and push it. This works from macOS with no
 #    local Docker; fly builds it, not your machine.
@@ -130,9 +135,16 @@ Set as fly secrets or env:
 - `LINEAR_API_KEY` (enables the fast pre-check): a Linear personal API key.
 - `NVIDIA_API_KEY` / `GEMINI_API_KEY` / `OPENROUTER_API_KEY`: review-backend keys the
   target's review slot needs (required for faff; builds park at review without them).
+- `FAFF_WINDOW_TOKENS` (required): the token ceiling for the 5h subscription window. The
+  drain sets `budget.window.{hours,tokens}` and `at_ceiling: park-until-window-reset` in
+  the clone, so an unattended run parks when the 5h window's tokens are spent and resumes
+  when the window resets, rather than escalating or burning into overage.
+- `FAFF_WINDOW_HOURS` (default 5): the window length; match your subscription usage window.
+- `FAFF_MODEL` (default `claude-opus-4-8`) / `FAFF_EFFORT` (default `high`): the model and
+  effort the drain's `claude -p` runs on.
 - `FAFF_TEAM_KEY` (default `FAFF`): the tracker team the pre-check queries.
 - `FAFF_TICK_SECS` (default 60): the fast pre-check cadence.
-- `FAFF_FULL_SECS` (default 3600): the full-drain (grooming + catch-all) cadence.
+- `FAFF_FULL_SECS` (default 43200 = 12h): the full-drain (grooming + catch-all) cadence.
 - `FAFF_DRAIN_TIMEOUT` (default 290m): wall-clock ceiling for a single drain.
 
 **Triggering.** Two cadences share one lock, so only one drain runs at a time:

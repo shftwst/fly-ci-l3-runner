@@ -52,6 +52,15 @@ rm -rf /home/faff/app
 git clone "$TARGET_REPO" /home/faff/app
 cd /home/faff/app
 
+# 3b. Budget: a rolling window governor aligned to the subscription 5h usage window. Both
+#     an hours figure and a token ceiling are required, or the window is inert. at_ceiling
+#     park-until-window-reset makes an unattended run PARK when the window's token ceiling
+#     is hit and resume when the window resets, instead of burning into overage. Written
+#     into this ephemeral clone only, never committed to the target.
+"$faff" config set budget.window.hours "${FAFF_WINDOW_HOURS:-5}" >/dev/null
+"$faff" config set budget.window.tokens "${FAFF_WINDOW_TOKENS:?set FAFF_WINDOW_TOKENS: the 5h window token ceiling}" >/dev/null
+"$faff" config set budget.at_ceiling park-until-window-reset >/dev/null
+
 # 4. The drain. With FAFF_ISSUE_IDS set (the fast path), run beep-boop over just those
 #    issues, which skips the tidy + discovery pass; without it, run the full pipeline
 #    (tidy, prep, build). Either way beep-boop parks anything it cannot decide. Stream
@@ -63,7 +72,9 @@ PROMPT="/faff-beep-boop"
 FAFF_RUN_DIR="/home/faff/app/.faff/runs/run-$(date -u +%Y%m%d-%H%M%S)-fly-l3"
 export FAFF_RUN_DIR
 timeout "${FAFF_DRAIN_TIMEOUT:-290m}" \
-  claude -p "$PROMPT" --output-format stream-json --verbose || true
+  claude -p "$PROMPT" \
+    --model "${FAFF_MODEL:-claude-opus-4-8}" --effort "${FAFF_EFFORT:-high}" \
+    --output-format stream-json --verbose || true
 
 # 5. Disposition is the red or green exit: non-zero if anything parked, errored, or
 #    needs attention. The container exit carries it so the runner loop can log it.
