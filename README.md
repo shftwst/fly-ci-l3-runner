@@ -43,6 +43,11 @@ Layers:
   pre-check is a lightweight tracker query, the MCP is how faff itself reads and writes
   Linear. Optional; without it the fast pickup is off and the runner works on the
   full-drain cadence only.
+- The review-backend key(s) the target's `.faffrc` review slot names. The faff repo's own
+  review slot is the adversarial reviewer, which uses `NVIDIA_API_KEY` (primary) with
+  `GEMINI_API_KEY` and `OPENROUTER_API_KEY` as fallbacks. Missing keys are an auth fault,
+  so every build would park at the review step (needs-human) instead of merging. Required
+  when draining faff; not needed for a target whose review slot uses no external backend.
 
 ## Tracker (Linear)
 
@@ -77,7 +82,10 @@ fly secrets set \
   TARGET_REPO="https://github.com/shftwst/faff" \
   GH_TOKEN="$(pass faff/gh)" \
   CLAUDE_CREDENTIALS_B64="$(base64 -w0 ~/.claude/.credentials.json)" \
-  LINEAR_API_KEY="$(pass linear/api)"
+  LINEAR_API_KEY="$(pass linear/api)" \
+  NVIDIA_API_KEY="$(pass faff/nvidia)" \
+  GEMINI_API_KEY="$(pass faff/gemini)" \
+  OPENROUTER_API_KEY="$(pass faff/openrouter)"
 
 # 3. Optional tuning (defaults: 60s fast tick, 3600s full drain, 290m ceiling, team FAFF).
 fly secrets set FAFF_TICK_SECS=60 FAFF_FULL_SECS=3600 FAFF_DRAIN_TIMEOUT=290m FAFF_TEAM_KEY=FAFF
@@ -112,6 +120,8 @@ Set as fly secrets or env:
   The credentials file carries the seat auth too, so if you set it you do not also need
   the seat token. `CLAUDE_CREDENTIALS_B64` is additionally what connects the Linear MCP.
 - `LINEAR_API_KEY` (enables the fast pre-check): a Linear personal API key.
+- `NVIDIA_API_KEY` / `GEMINI_API_KEY` / `OPENROUTER_API_KEY`: review-backend keys the
+  target's review slot needs (required for faff; builds park at review without them).
 - `FAFF_TEAM_KEY` (default `FAFF`): the tracker team the pre-check queries.
 - `FAFF_TICK_SECS` (default 60): the fast pre-check cadence.
 - `FAFF_FULL_SECS` (default 3600): the full-drain (grooming + catch-all) cadence.

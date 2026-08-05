@@ -67,6 +67,9 @@ run_drain() {
        -e GH_TOKEN="$GH_TOKEN" \
        -e FAFF_DRAIN_TIMEOUT="$DRAIN_TIMEOUT" \
        -e FAFF_ISSUE_IDS="$ids" \
+       -e NVIDIA_API_KEY="${NVIDIA_API_KEY:-}" \
+       -e GEMINI_API_KEY="${GEMINI_API_KEY:-}" \
+       -e OPENROUTER_API_KEY="${OPENROUTER_API_KEY:-}" \
        faff-cage; then
     echo "=== $(date -u +%FT%TZ) drain clean (disposition exit 0) ==="
   else
@@ -79,6 +82,15 @@ if ids=$(eligible_ids); then
   echo "pre-check: available. ${ids:+eligible now: $ids}${ids:-nothing eligible right now}"
 else
   echo "pre-check: UNAVAILABLE (no LINEAR_API_KEY or query error). Fast pickup is off; the full drain every ${FULL_SECS}s is the only trigger. Set LINEAR_API_KEY (and FAFF_TEAM_KEY if not '${TEAM_KEY}') to enable 60s pickup."
+fi
+
+# 5b. Warn if the review-backend keys are absent. faff's configured review slot may run an
+#     adversarial second opinion (the faff repo's own .faffrc does, via nvidia/gemini/
+#     openrouter). Missing keys are an AUTH fault, which surfaces needs-human, so every
+#     build would park at the review step rather than merge. Not fatal to start (a target
+#     repo may not use adversarial review), but loud so it is not discovered via parks.
+if [ -z "${NVIDIA_API_KEY:-}" ] && [ -z "${GEMINI_API_KEY:-}" ] && [ -z "${OPENROUTER_API_KEY:-}" ]; then
+  echo "WARN: no NVIDIA_API_KEY / GEMINI_API_KEY / OPENROUTER_API_KEY set. If the target's review slot uses an adversarial backend (the faff repo does), builds will PARK at review (auth fault -> needs-human), not merge. Set the review-backend key(s) the target's .faffrc names."
 fi
 
 # 6. The loop. flock is the concurrency guard: a running drain holds the lock for its
