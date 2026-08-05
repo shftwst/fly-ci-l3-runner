@@ -70,9 +70,11 @@ until you refresh it. Watch the drain log for the `tracker: Linear MCP connected
 fly launch --no-deploy --name fly-ci-l3-runner --region lhr
 
 # 2. Set the secrets. These never enter the image or git.
+#    CLAUDE_CREDENTIALS_B64 carries the seat auth too, so a separate CLAUDE_CODE_OAUTH_TOKEN
+#    is not needed; set the seat token instead of the credentials file only if you do not
+#    use Linear.
 fly secrets set \
   TARGET_REPO="https://github.com/shftwst/faff" \
-  CLAUDE_CODE_OAUTH_TOKEN="$(pass faff/seat)" \
   GH_TOKEN="$(pass faff/gh)" \
   CLAUDE_CREDENTIALS_B64="$(base64 -w0 ~/.claude/.credentials.json)" \
   LINEAR_API_KEY="$(pass linear/api)"
@@ -80,11 +82,16 @@ fly secrets set \
 # 3. Optional tuning (defaults: 60s fast tick, 3600s full drain, 290m ceiling, team FAFF).
 fly secrets set FAFF_TICK_SECS=60 FAFF_FULL_SECS=3600 FAFF_DRAIN_TIMEOUT=290m FAFF_TEAM_KEY=FAFF
 
-# 4. Start ONE standalone Machine. Not `fly deploy` (its release-health wait can
-#    restart-loop a slow first boot).
-fly machine run . --app fly-ci-l3-runner
+# 4. Build the image on fly's remote builder and push it. This works from macOS with no
+#    local Docker; fly builds it, not your machine.
+fly deploy --build-only --push --app fly-ci-l3-runner
+#    Note the image ref it prints, e.g. registry.fly.io/fly-ci-l3-runner:deployment-XXXX.
 
-# 5. Watch it come up: dockerd, then the cage build, then the first drain.
+# 5. Start ONE standalone Machine from that image. Do not use `fly deploy` to run it: its
+#    release monitor can restart-loop a slow first boot (dockerd + the cage build).
+fly machine run <image-ref-from-step-4> --app fly-ci-l3-runner
+
+# 6. Watch it come up: dockerd, then the cage build, then the first drain.
 fly logs --app fly-ci-l3-runner
 ```
 
@@ -100,8 +107,10 @@ Stop it when you land: `fly machine list` then `fly machine destroy <id> --force
 Set as fly secrets or env:
 
 - `TARGET_REPO` (required): the repo to drain.
-- `CLAUDE_CODE_OAUTH_TOKEN`, `GH_TOKEN` (required): the seat token and the git token.
-- `CLAUDE_CREDENTIALS_B64` (required for Linear): the carried tracker credentials.
+- `GH_TOKEN` (required): a git token with push access, for branches and PRs.
+- `CLAUDE_CODE_OAUTH_TOKEN` or `CLAUDE_CREDENTIALS_B64` (one required): the model auth.
+  The credentials file carries the seat auth too, so if you set it you do not also need
+  the seat token. `CLAUDE_CREDENTIALS_B64` is additionally what connects the Linear MCP.
 - `LINEAR_API_KEY` (enables the fast pre-check): a Linear personal API key.
 - `FAFF_TEAM_KEY` (default `FAFF`): the tracker team the pre-check queries.
 - `FAFF_TICK_SECS` (default 60): the fast pre-check cadence.

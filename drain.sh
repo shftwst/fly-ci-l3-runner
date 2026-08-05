@@ -6,8 +6,10 @@
 set -euo pipefail
 
 : "${TARGET_REPO:?set TARGET_REPO, e.g. https://github.com/you/app}"
-: "${CLAUDE_CODE_OAUTH_TOKEN:?set the long-lived seat token}"
 : "${GH_TOKEN:?set a gh token with push access to the target repo}"
+# Model auth: the seat token if provided, otherwise the carried credentials file (which
+# holds the account auth too). Drop an empty seat-token env so it never shadows the file.
+[ -n "${CLAUDE_CODE_OAUTH_TOKEN:-}" ] || unset CLAUDE_CODE_OAUTH_TOKEN
 
 # Resolve the faff CLI. faff is installed as a plugin, so its binary lives under the
 # plugin dir, not on PATH. Resolve it the way faff's own skills do.

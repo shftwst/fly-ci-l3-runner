@@ -14,8 +14,12 @@
 set -euo pipefail
 
 : "${TARGET_REPO:?set TARGET_REPO as a fly secret, e.g. https://github.com/you/app}"
-: "${CLAUDE_CODE_OAUTH_TOKEN:?set the seat token as a fly secret}"
 : "${GH_TOKEN:?set a gh token as a fly secret}"
+# The model auth can come from either the seat token or the carried credentials file
+# (which also contains the account auth). Require at least one.
+if [ -z "${CLAUDE_CODE_OAUTH_TOKEN:-}" ] && [ -z "${CLAUDE_CREDENTIALS_B64:-}" ]; then
+  echo "set CLAUDE_CODE_OAUTH_TOKEN, or CLAUDE_CREDENTIALS_B64 (which carries the seat auth too)"; exit 1
+fi
 
 TICK_SECS="${FAFF_TICK_SECS:-60}"             # fast pre-check cadence
 FULL_SECS="${FAFF_FULL_SECS:-3600}"           # full drain (tidy + discovery) cadence
@@ -58,7 +62,7 @@ run_drain() {
   echo "=== $(date -u +%FT%TZ) $label ==="
   if docker run --rm \
        -e TARGET_REPO="$TARGET_REPO" \
-       -e CLAUDE_CODE_OAUTH_TOKEN="$CLAUDE_CODE_OAUTH_TOKEN" \
+       -e CLAUDE_CODE_OAUTH_TOKEN="${CLAUDE_CODE_OAUTH_TOKEN:-}" \
        -e CLAUDE_CREDENTIALS_B64="${CLAUDE_CREDENTIALS_B64:-}" \
        -e GH_TOKEN="$GH_TOKEN" \
        -e FAFF_DRAIN_TIMEOUT="$DRAIN_TIMEOUT" \
