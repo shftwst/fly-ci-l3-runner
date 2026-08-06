@@ -9,7 +9,7 @@
 # can recreate a slow-booting Machine in a restart loop.
 
 app = "fly-ci-l3-runner"
-primary_region = "yul"   # Montreal — nearest fly region to Ottawa
+primary_region = "yyz"   # Toronto — nearest available fly region to Ottawa (fly has no Montreal/Ottawa)
 
 [build]
   dockerfile = "Dockerfile"
