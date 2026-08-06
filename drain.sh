@@ -154,14 +154,24 @@ run_claude() {
 # (summary.md, events.jsonl, disposition, park.md) survive on the state volume and record
 # OUTCOMES, but not the turn-by-turn trace. That trace otherwise only reaches stdout -> fly
 # logs, which retain ~5 minutes. So when the state volume is mounted, `tee` the stream to a
-# per-run file (stdout stays live for `fly logs`), gzip it after the run (blocking, so it is
-# whole before disposition), and keep the last 40 so an unattended runner can't fill the disk.
+# per-run file (stdout stays live for `fly logs`) and gzip it after the run (blocking, so it
+# is whole before disposition).
 if [ -d /home/faff/state ]; then
   mkdir -p /home/faff/state/streams
   STREAM_RAW="/home/faff/state/streams/$(basename "$FAFF_RUN_DIR").jsonl"
   run_claude | tee "$STREAM_RAW" || true
   gzip -f "$STREAM_RAW" 2>/dev/null && echo "stream persisted: ${STREAM_RAW}.gz"
-  ls -1t /home/faff/state/streams/*.jsonl.gz 2>/dev/null | tail -n +41 | xargs -r rm -f
+  # Retention: keep as much history as the volume comfortably holds (streams are a few MB
+  # gzipped, the volume is 30GB); offload to long-term storage out of band. Prune ONLY to
+  # protect the docker engine: this volume also backs /var/lib/docker (vfs), so if it fills,
+  # dockerd breaks and the runner dies. So delete the OLDEST streams one at a time, and only
+  # while free space is under FAFF_STREAM_MIN_FREE_GB (default 8), leaving the engine headroom.
+  min_free_kb=$(( ${FAFF_STREAM_MIN_FREE_GB:-8} * 1024 * 1024 ))
+  while [ "$(df -P /home/faff/state | awk 'NR==2{print $4}')" -lt "$min_free_kb" ]; do
+    oldest=$(ls -1tr /home/faff/state/streams/*.jsonl.gz 2>/dev/null | head -1)
+    [ -n "$oldest" ] || break   # nothing left to prune (engine itself is the consumer) -> stop
+    rm -f "$oldest" && echo "pruned oldest stream for engine headroom: $oldest"
+  done
 else
   run_claude || true
 fi
