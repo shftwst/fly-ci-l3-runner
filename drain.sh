@@ -143,11 +143,28 @@ export FAFF_RUN_DIR
 # parks gracefully before this SIGKILL can cull the drain. entrypoint passes an explicit
 # value; this fallback keeps the property if drain.sh is run standalone.
 DRAIN_TIMEOUT="${FAFF_DRAIN_TIMEOUT:-$(( (${FAFF_WINDOW_HOURS:-5} + 1) * 60 ))m}"
-timeout "$DRAIN_TIMEOUT" \
-  claude -p "$PROMPT" \
-    --model "${FAFF_MODEL:-claude-opus-4-8}" --effort "${FAFF_EFFORT:-high}" \
-    --dangerously-skip-permissions \
-    --output-format stream-json --verbose || true
+run_claude() {
+  timeout "$DRAIN_TIMEOUT" \
+    claude -p "$PROMPT" \
+      --model "${FAFF_MODEL:-claude-opus-4-8}" --effort "${FAFF_EFFORT:-high}" \
+      --dangerously-skip-permissions \
+      --output-format stream-json --verbose
+}
+# Persist the raw model stream, not just faff's run-dir. faff's .faff/runs artifacts
+# (summary.md, events.jsonl, disposition, park.md) survive on the state volume and record
+# OUTCOMES, but not the turn-by-turn trace. That trace otherwise only reaches stdout -> fly
+# logs, which retain ~5 minutes. So when the state volume is mounted, `tee` the stream to a
+# per-run file (stdout stays live for `fly logs`), gzip it after the run (blocking, so it is
+# whole before disposition), and keep the last 40 so an unattended runner can't fill the disk.
+if [ -d /home/faff/state ]; then
+  mkdir -p /home/faff/state/streams
+  STREAM_RAW="/home/faff/state/streams/$(basename "$FAFF_RUN_DIR").jsonl"
+  run_claude | tee "$STREAM_RAW" || true
+  gzip -f "$STREAM_RAW" 2>/dev/null && echo "stream persisted: ${STREAM_RAW}.gz"
+  ls -1t /home/faff/state/streams/*.jsonl.gz 2>/dev/null | tail -n +41 | xargs -r rm -f
+else
+  run_claude || true
+fi
 
 # 5. Disposition is the red or green exit: non-zero if anything parked, errored, or
 #    needs attention. The container exit carries it so the runner loop can log it.
