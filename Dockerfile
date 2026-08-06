@@ -5,8 +5,8 @@
 # cage container this Machine runs, which is where the drain actually happens.
 FROM ubuntu:24.04
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
-      ca-certificates curl gnupg bash coreutils jq \
+RUN export DEBIAN_FRONTEND=noninteractive && apt-get update && apt-get install -y --no-install-recommends \
+      ca-certificates curl gnupg bash coreutils jq tzdata \
  && install -m 0755 -d /etc/apt/keyrings \
  && curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc \
  && chmod a+r /etc/apt/keyrings/docker.asc \

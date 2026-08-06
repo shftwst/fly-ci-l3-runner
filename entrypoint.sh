@@ -20,8 +20,9 @@ set -euo pipefail
 # operator's sessions). CLAUDE_CREDENTIALS_B64 is separate and for the Linear MCP only.
 : "${CLAUDE_CODE_OAUTH_TOKEN:?set the long-lived seat token from 'claude setup-token'}"
 
-TICK_SECS="${FAFF_TICK_SECS:-60}"             # fast pre-check cadence
-FULL_SECS="${FAFF_FULL_SECS:-43200}"          # full drain (tidy + discovery) cadence (12h)
+TICK_SECS="${FAFF_TICK_SECS:-3600}"           # cheap pre-check cadence (hourly)
+FULL_HOUR="${FAFF_FULL_HOUR:-5}"              # hour-of-day (0-23) for the once-daily full drain
+FULL_TZ="${FAFF_FULL_TZ:-America/New_York}"   # zone FULL_HOUR is read in (IANA => DST-aware Eastern)
 WINDOW_HOURS="${FAFF_WINDOW_HOURS:-5}"        # subscription budget-window length
 # The wall-clock ceiling is a LAST-RESORT hang catch, deliberately ABOVE the budget
 # window so the window governor parks gracefully (writing park-until-window-reset +
@@ -128,23 +129,41 @@ if [ -z "${NVIDIA_API_KEY:-}" ] && [ -z "${GEMINI_API_KEY:-}" ] && [ -z "${OPENR
   echo "WARN: no NVIDIA_API_KEY / GEMINI_API_KEY / OPENROUTER_API_KEY set. If the target's review slot uses an adversarial backend (the faff repo does), builds will PARK at review (auth fault -> needs-human), not merge. Set the review-backend key(s) the target's .faffrc names."
 fi
 
-# 6. The loop. flock is the concurrency guard: a running drain holds the lock for its
-#    whole duration, so a tick that cannot take it means a drain is still going and
-#    skips. The idle-check is foreground (no backgrounded subshell), so skips never pile
-#    up; only a real drain runs in the background, one at a time. last_full starts at 0
-#    so the first free tick runs a full drain immediately (clearing any queued backlog).
-echo "runner ready. fast tick every ${TICK_SECS}s; full drain every ${FULL_SECS}s."
-last_full=0
-while true; do
-  if flock -n "$LOCK" -c true 2>/dev/null; then
-    now=$(date +%s)
-    if [ $(( now - last_full )) -ge "$FULL_SECS" ]; then
-      last_full=$now
-      ( exec 9>"$LOCK"; flock -n 9 || exit 0; run_drain "" ) &
-    elif hits=$(eligible_ids) && [ -n "$hits" ]; then
-      ( exec 9>"$LOCK"; flock -n 9 || exit 0; run_drain "$hits" ) &
-    fi
-    # no full due + no eligible tickets (or pre-check unavailable) -> skip this tick
+# 6. The loop. Cadence:
+#    - CHEAP targeted pass (fast pre-check -> explicit-list drain of just the eligible issues,
+#      which SKIPS tidy + discovery) on startup, then once an HOUR.
+#    - one FULL drain (tidy + discovery + build) per day at FULL_HOUR in FULL_TZ (5am Eastern
+#      default; the IANA zone tracks DST so it stays 5am local year-round).
+#    flock serialises: a tick that cannot take the lock means a drain is still running and skips.
+#    The last-full day is tracked in a marker file so the full fires at most once per calendar day.
+FULL_MARK="/tmp/faff-last-full-day"
+eastern_day()  { TZ="$FULL_TZ" date +%Y%m%d; }
+eastern_hour() { echo $(( 10#$(TZ="$FULL_TZ" date +%H) )); }   # 10# forces base-10 (no octal 08/09 trap)
+
+# Startup is CHEAP: seed the marker to today so the first full is tomorrow at FULL_HOUR (never on
+# boot), then run one cheap targeted pass immediately so ready work starts without waiting an hour.
+eastern_day > "$FULL_MARK"
+echo "runner ready. cheap pre-check on startup + hourly (${TICK_SECS}s); full drain daily at ${FULL_HOUR}:00 ${FULL_TZ}."
+if flock -n "$LOCK" -c true 2>/dev/null; then
+  if hits=$(eligible_ids) && [ -n "$hits" ]; then
+    echo "startup: eligible now [$hits] -> cheap targeted drain."
+    ( exec 9>"$LOCK"; flock -n 9 || exit 0; run_drain "$hits" ) &
+  else
+    echo "startup: nothing eligible -> no drain (cheap)."
   fi
+fi
+
+while true; do
   sleep "$TICK_SECS"
+  flock -n "$LOCK" -c true 2>/dev/null || continue   # a drain is still running -> skip this tick
+  if [ "$(eastern_day)" != "$(cat "$FULL_MARK" 2>/dev/null)" ] && [ "$(eastern_hour)" -ge "$FULL_HOUR" ]; then
+    # Daily full is due (new Eastern day, at/after FULL_HOUR, not yet run today). The marker is
+    # written INSIDE the lock so a full skipped because another drain holds the lock is retried
+    # next tick, and >= FULL_HOUR (not == ) means a full missed at 5am (drain still running) is
+    # picked up by the 6am/7am tick rather than lost for the day.
+    ( exec 9>"$LOCK"; flock -n 9 || exit 0; eastern_day > "$FULL_MARK"; run_drain "" ) &
+  elif hits=$(eligible_ids) && [ -n "$hits" ]; then
+    ( exec 9>"$LOCK"; flock -n 9 || exit 0; run_drain "$hits" ) &
+  fi
+  # no full due + nothing eligible (or pre-check unavailable) -> skip; an idle tick is one API call
 done

@@ -4,8 +4,8 @@ An always-on faff L3 runner on a fly.io Machine, with no GitHub Actions. The Mac
 wakes itself, drains the automation-eligible queue of a target repo with
 `/faff-beep-boop`, opens PRs, and parks anything it cannot decide. Point it at your
 repo, set its secrets, start one Machine, and leave. It checks the tracker for eligible
-work every minute with a cheap query, so a ticket you make eligible is picked up in
-about a minute, without spinning anything up when there is nothing to do.
+work once an hour with a cheap query, so a ticket you make eligible is picked up within
+the hour, without spinning anything up when there is nothing to do.
 
 ## How it meets the gate
 
@@ -21,8 +21,8 @@ Layers:
 
 - The **Machine** (`Dockerfile`, `entrypoint.sh`) is the always-on host. It starts
   dockerd, builds the cage image once, then runs two cadences under one `flock` (only
-  one drain at a time): a fast per-minute pre-check that, on a hit, builds just the
-  eligible tickets, and a slower full `/faff-beep-boop` for grooming and as a catch-all.
+  one drain at a time): a cheap hourly pre-check that, on a hit, builds just the eligible
+  tickets, and a once-daily full `/faff-beep-boop` (5am Eastern) for grooming and catch-all.
 - The **cage** (`cage/Dockerfile`, `drain.sh`) is the container each drain runs in. It
   carries the harness plus faff, runs `faff container-check --gate` first (passes),
   clones the target repo, runs `/faff-beep-boop` (over the whole queue, or over the
@@ -97,11 +97,11 @@ fly secrets set \
 # 3. The 5h subscription-window budget (required — the drain sets it in the clone):
 fly secrets set FAFF_WINDOW_HOURS=5 FAFF_WINDOW_TOKENS=<your 5h token ceiling>
 
-# 4. Optional tuning (defaults: 60s fast tick, 12h full drain, hard-timeout = window+1h,
-#    team FAFF, model claude-opus-4-8, effort high). Leave FAFF_DRAIN_TIMEOUT unset to keep
-#    it derived above the window; only set it if you deliberately want a different ceiling
-#    (and keep it > FAFF_WINDOW_HOURS, or the SIGKILL culls the drain before it can park).
-fly secrets set FAFF_TICK_SECS=60 FAFF_FULL_SECS=43200 \
+# 4. Optional tuning (defaults: hourly cheap tick, daily full at 5am Eastern, hard-timeout =
+#    window+1h, team FAFF, model claude-opus-4-8, effort high). Leave FAFF_DRAIN_TIMEOUT unset
+#    to keep it derived above the window; only set it if you deliberately want a different
+#    ceiling (and keep it > FAFF_WINDOW_HOURS, or the SIGKILL culls the drain before it parks).
+fly secrets set FAFF_TICK_SECS=3600 FAFF_FULL_HOUR=5 FAFF_FULL_TZ=America/New_York \
   FAFF_TEAM_KEY=FAFF FAFF_MODEL=claude-opus-4-8 FAFF_EFFORT=high
 
 # 4. Build the image on fly's remote builder and push it. This works from macOS with no
@@ -145,8 +145,10 @@ Set as fly secrets or env:
 - `FAFF_MODEL` (default `claude-opus-4-8`) / `FAFF_EFFORT` (default `high`): the model and
   effort the drain's `claude -p` runs on.
 - `FAFF_TEAM_KEY` (default `FAFF`): the tracker team the pre-check queries.
-- `FAFF_TICK_SECS` (default 60): the fast pre-check cadence.
-- `FAFF_FULL_SECS` (default 43200 = 12h): the full-drain (grooming + catch-all) cadence.
+- `FAFF_TICK_SECS` (default 3600 = hourly): the cheap pre-check cadence.
+- `FAFF_FULL_HOUR` (default 5): hour-of-day (0-23) for the once-daily full drain.
+- `FAFF_FULL_TZ` (default `America/New_York`): the zone `FAFF_FULL_HOUR` is read in. An IANA
+  name keeps it correct across DST (so 5 stays 5am Eastern year-round).
 - `FAFF_DRAIN_TIMEOUT` (default window + 1h): last-resort hard-timeout for a single drain,
   derived above the budget window so the window parks gracefully before this SIGKILL culls
   the drain. Only set it explicitly if you want a different ceiling, and keep it above
@@ -156,14 +158,18 @@ Set as fly secrets or env:
 
 **Triggering.** Two cadences share one lock, so only one drain runs at a time:
 
-- **Fast (every `FAFF_TICK_SECS`):** a cheap Linear query for `faff-automate` issues in
-  Backlog or Todo. On a hit, it builds just those issues (`/faff-beep-boop <IDs>`, which
-  skips tidy). A ticket you make eligible is picked up within about a tick. An idle tick
-  is one API call, no container and no claude session, so leaving it running is cheap.
-- **Full (every `FAFF_FULL_SECS`):** a full `/faff-beep-boop` (tidy, discovery, build).
-  This grooms the backlog and catches anything the pre-check missed, so a wrong or
-  unavailable pre-check degrades to work on this cadence, never to silence. The first
-  tick runs one immediately, clearing any queued backlog at startup.
+- **Cheap (on startup, then every `FAFF_TICK_SECS`):** a cheap Linear query for
+  `faff-automate` issues in Backlog or Todo. On a hit, it builds just those issues
+  (`/faff-beep-boop <IDs>`, which skips tidy). Startup runs one immediately so ready work
+  starts without waiting; an idle tick is one API call, no container and no claude session,
+  so leaving it running is cheap.
+- **Full (once a day at `FAFF_FULL_HOUR` in `FAFF_FULL_TZ`, default 5am Eastern):** a full
+  `/faff-beep-boop` (tidy, discovery, build). This grooms the backlog and catches anything
+  the cheap pre-check missed. It does **not** run on startup (startup is the cheap pass), so
+  a same-day start still waits for the next 5am; the cheap hourly pass carries build work in
+  the meantime. Tidy's autonomous mutations (dead-link strip, stale-park clear, repeat-park
+  demote, container status advance, chain-gap ticket creation at `appetite: high`) happen
+  only in this daily full, never in the cheap passes.
 
 A fresh clone per drain suits L3, which keeps no state between firings and pushes each
 branch at build-complete. Without `LINEAR_API_KEY` the fast cadence is off and only the
