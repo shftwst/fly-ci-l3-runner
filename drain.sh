@@ -154,28 +154,47 @@ run_claude() {
 # (summary.md, events.jsonl, disposition, park.md) survive on the state volume and record
 # OUTCOMES, but not the turn-by-turn trace. That trace otherwise only reaches stdout -> fly
 # logs, which retain ~5 minutes. So when the state volume is mounted, `tee` the stream to a
-# per-run file (stdout stays live for `fly logs`) and gzip it after the run (blocking, so it
-# is whole before disposition).
+# per-run file (stdout stays live for `fly logs`) and gzip it after.
+#
+# CORRELATION: beep-boop mints its OWN run-dir (run-<ts>-beepboop-<mode>) and re-exports
+# FAFF_RUN_DIR to it inside the claude child, so the name we set above is only a placeholder.
+# Stream to a temp file, then — drains are serialised, one at a time — resolve the run-dir
+# actually created during THIS drain (the newest dir touched since the start marker) and name
+# the stream after it, so streams/<run-id>.jsonl.gz sits beside runs/<run-id>/ and disposition
+# runs against the same real dir.
+DRAIN_START="/tmp/faff-drain-start.$$"; : > "$DRAIN_START"
 if [ -d /home/faff/state ]; then
   mkdir -p /home/faff/state/streams
-  STREAM_RAW="/home/faff/state/streams/$(basename "$FAFF_RUN_DIR").jsonl"
-  run_claude | tee "$STREAM_RAW" || true
-  gzip -f "$STREAM_RAW" 2>/dev/null && echo "stream persisted: ${STREAM_RAW}.gz"
+  STREAM_TMP="/home/faff/state/streams/.pending.$$.jsonl"
+  run_claude | tee "$STREAM_TMP" || true
+else
+  run_claude || true
+fi
+
+# Resolve the run-dir beep-boop actually minted this drain; fall back to the placeholder if
+# none was created (e.g. an early gate stop before mint).
+RUN_DIR=$(find /home/faff/app/.faff/runs -mindepth 1 -maxdepth 1 -type d -newer "$DRAIN_START" 2>/dev/null | sort | tail -1)
+[ -n "$RUN_DIR" ] || RUN_DIR="$FAFF_RUN_DIR"
+rm -f "$DRAIN_START"
+
+if [ -d /home/faff/state ] && [ -f "$STREAM_TMP" ]; then
+  STREAM_RAW="/home/faff/state/streams/$(basename "$RUN_DIR").jsonl"
+  mv -f "$STREAM_TMP" "$STREAM_RAW"
+  gzip -f "$STREAM_RAW" 2>/dev/null && echo "stream persisted: ${STREAM_RAW}.gz (run $(basename "$RUN_DIR"))"
   # Retention: keep as much history as the volume comfortably holds (streams are a few MB
   # gzipped, the volume is 30GB); offload to long-term storage out of band. Prune ONLY to
   # protect the docker engine: this volume also backs /var/lib/docker (vfs), so if it fills,
-  # dockerd breaks and the runner dies. So delete the OLDEST streams one at a time, and only
-  # while free space is under FAFF_STREAM_MIN_FREE_GB (default 8), leaving the engine headroom.
+  # dockerd breaks and the runner dies. Delete the OLDEST streams one at a time, only while
+  # free space is under FAFF_STREAM_MIN_FREE_GB (default 8), leaving the engine headroom.
   min_free_kb=$(( ${FAFF_STREAM_MIN_FREE_GB:-8} * 1024 * 1024 ))
   while [ "$(df -P /home/faff/state | awk 'NR==2{print $4}')" -lt "$min_free_kb" ]; do
     oldest=$(ls -1tr /home/faff/state/streams/*.jsonl.gz 2>/dev/null | head -1)
     [ -n "$oldest" ] || break   # nothing left to prune (engine itself is the consumer) -> stop
     rm -f "$oldest" && echo "pruned oldest stream for engine headroom: $oldest"
   done
-else
-  run_claude || true
 fi
 
-# 5. Disposition is the red or green exit: non-zero if anything parked, errored, or
-#    needs attention. The container exit carries it so the runner loop can log it.
-exec "$faff" disposition --run-dir "$FAFF_RUN_DIR"
+# 5. Disposition is the red or green exit: non-zero if anything parked, errored, or needs
+#    attention. Point it at the run-dir beep-boop actually wrote (resolved above), not the
+#    placeholder. The container exit carries it so the runner loop can log it.
+exec "$faff" disposition --run-dir "$RUN_DIR"
