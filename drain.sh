@@ -44,8 +44,33 @@ fi
 #    socket). If it ever fails, refuse loudly rather than drain uncaged.
 "$faff" container-check --gate
 
-# 2. Wire git push and clone auth from the gh token.
+# 2. Wire git auth the gh-native way. gh reads GH_TOKEN from the env (passed into the cage),
+#    so `gh auth setup-git` points git at gh's credential helper for both clone and push, and
+#    `gh pr create` uses the same token. One token, one env var — the path this token already
+#    uses everywhere else.
 gh auth setup-git
+git config --global user.email "faff-runner@local"
+git config --global user.name "faff-runner"
+
+# 2a. Auth preflight — FAIL LOUD AT BOOT, never mid-build. The whole point of a cage is that
+#     a build agent can't tell "the repo won't let me push" (infra) from "this work can't be
+#     done" (state), and on the last run something logged `push skipped — remote auth
+#     unavailable` and issues parked as if unworkable. So assert push access to the TARGET
+#     before any model session: derive owner/repo from TARGET_REPO and check the token's
+#     permissions. A false/again-unavailable verdict refuses the drain outright — an honest
+#     red exit the operator can see, not a session's worth of spend ending in a bogus park.
+slug=$(printf '%s' "$TARGET_REPO" | sed -E 's#^https?://[^/]+/##; s/\.git$//')
+if ! gh auth status >/dev/null 2>&1; then
+  echo "FATAL: gh is not authenticated in the cage (GH_TOKEN missing/invalid). Refusing to drain."; exit 1
+fi
+canpush=$(gh api "repos/$slug" --jq '.permissions.push' 2>/dev/null || echo "error")
+if [ "$canpush" != "true" ]; then
+  echo "FATAL: the token cannot push to $slug (permissions.push=$canpush). This is an INFRA"
+  echo "       fault, not a backlog one — refusing to drain so issues are not parked as"
+  echo "       unworkable. Check the GH_TOKEN secret delivered into the cage is the real token."
+  exit 1
+fi
+echo "auth preflight: token can push to $slug."
 
 # 3. Fresh checkout.
 rm -rf /home/faff/app
