@@ -162,8 +162,18 @@ while true; do
     # next tick, and >= FULL_HOUR (not == ) means a full missed at 5am (drain still running) is
     # picked up by the 6am/7am tick rather than lost for the day.
     ( exec 9>"$LOCK"; flock -n 9 || exit 0; eastern_day > "$FULL_MARK"; run_drain "" ) &
-  elif hits=$(eligible_ids) && [ -n "$hits" ]; then
-    ( exec 9>"$LOCK"; flock -n 9 || exit 0; run_drain "$hits" ) &
+  else
+    # Cheap pre-check. Always log its outcome (error / eligible / nothing) so the hourly
+    # tick is itself the liveness signal -- no separate heartbeat. Only the eligible case
+    # starts a drain; the flock guard above already prevents a parallel one.
+    hits=$(eligible_ids); rc=$?
+    if [ "$rc" -ne 0 ]; then
+      echo "$(date -u +%FT%TZ) pre-check: query error, fast pickup degraded (daily full still runs)"
+    elif [ -n "$hits" ]; then
+      echo "$(date -u +%FT%TZ) pre-check: eligible -> $hits"
+      ( exec 9>"$LOCK"; flock -n 9 || exit 0; run_drain "$hits" ) &
+    else
+      echo "$(date -u +%FT%TZ) pre-check: nothing eligible"
+    fi
   fi
-  # no full due + nothing eligible (or pre-check unavailable) -> skip; an idle tick is one API call
 done
