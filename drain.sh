@@ -21,14 +21,14 @@ faff=$(command -v faff || true)
 
 # 0. Tracker auth ONLY. faff drives Linear through the hosted Linear MCP (OAuth), and
 #    there is no browser here to authorize it, so carry the pre-authorized token:
-#    CLAUDE_CREDENTIALS_B64 is base64 of your ~/.claude/.credentials.json. Write back
+#    CLAUDE_MCP_OAUTH_B64 is base64 of your ~/.claude/.credentials.json. Write back
 #    ONLY its mcpOAuth (tracker) section, never the claudeAiOauth account section, so the
 #    rotating account refresh token never lands in CI and cannot race your sessions. Model
 #    auth stays entirely on CLAUDE_CODE_OAUTH_TOKEN above. Without this the Linear MCP is
 #    unauthenticated and faff falls back to git-only, ignoring your Linear issues.
-if [ -n "${CLAUDE_CREDENTIALS_B64:-}" ]; then
+if [ -n "${CLAUDE_MCP_OAUTH_B64:-}" ]; then
   mkdir -p "$HOME/.claude"
-  printf '%s' "$CLAUDE_CREDENTIALS_B64" | base64 -d > /tmp/creds.full.json
+  printf '%s' "$CLAUDE_MCP_OAUTH_B64" | base64 -d > /tmp/creds.full.json
   node -e 'const fs=require("fs");let j={};try{j=JSON.parse(fs.readFileSync("/tmp/creds.full.json","utf8"))}catch(e){};const out=j.mcpOAuth?{mcpOAuth:j.mcpOAuth}:{};fs.writeFileSync(process.env.HOME+"/.claude/.credentials.json",JSON.stringify(out));if(!j.mcpOAuth)process.exit(3);' \
     || echo "WARN: credentials blob had no mcpOAuth section; Linear MCP will be unauthenticated (git-only)."
   rm -f /tmp/creds.full.json

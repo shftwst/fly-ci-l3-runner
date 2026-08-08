@@ -64,7 +64,7 @@ the authorization. So you authorize it once on your own machine, then carry the 
 # On your machine, once, authorize Linear for Claude Code (opens a browser):
 claude mcp add --transport http linear https://mcp.linear.app/mcp
 # use any faff command that reads Linear so the OAuth flow completes, then:
-base64 < ~/.claude/.credentials.json | tr -d '\n'   # this is CLAUDE_CREDENTIALS_B64 (macOS + Linux)
+base64 < ~/.claude/.credentials.json | tr -d '\n'   # this is CLAUDE_MCP_OAUTH_B64 (macOS + Linux)
 ```
 
 The cage writes back **only** the `mcpOAuth` (Linear) section of that file, never the
@@ -82,13 +82,13 @@ until you refresh it. Watch the drain log for the `tracker: Linear MCP connected
 fly launch --no-deploy --name fly-ci-l3-runner --region lhr
 
 # 2. Set the secrets. These never enter the image or git.
-#    CLAUDE_CODE_OAUTH_TOKEN is the long-lived seat (model) auth; CLAUDE_CREDENTIALS_B64 is
+#    CLAUDE_CODE_OAUTH_TOKEN is the long-lived seat (model) auth; CLAUDE_MCP_OAUTH_B64 is
 #    the Linear MCP auth only. They are distinct jobs and both are needed to drain faff.
 fly secrets set \
   TARGET_REPO="https://github.com/shftwst/faff" \
   GH_TOKEN="$(pass faff/gh)" \
   CLAUDE_CODE_OAUTH_TOKEN="$(pass faff/seat)" \
-  CLAUDE_CREDENTIALS_B64="$(base64 < ~/.claude/.credentials.json | tr -d '\n')" \
+  CLAUDE_MCP_OAUTH_B64="$(base64 < ~/.claude/.credentials.json | tr -d '\n')" \
   LINEAR_API_KEY="$(pass linear/api)" \
   NVIDIA_API_KEY="$(pass faff/nvidia)" \
   GEMINI_API_KEY="$(pass faff/gemini)" \
@@ -132,7 +132,7 @@ Set as fly secrets or env:
 - `GH_TOKEN` (required): a git token with push access, for branches and PRs.
 - `CLAUDE_CODE_OAUTH_TOKEN` (required): the long-lived seat token (`claude setup-token`),
   used for the model only. Not the interactive credentials (those rotate and would race).
-- `CLAUDE_CREDENTIALS_B64` (required for Linear): base64 of `~/.claude/.credentials.json`;
+- `CLAUDE_MCP_OAUTH_B64` (required for Linear): base64 of `~/.claude/.credentials.json`;
   the cage uses only its `mcpOAuth` section, to connect the Linear MCP.
 - `LINEAR_API_KEY` (enables the fast pre-check): a Linear personal API key.
 - `NVIDIA_API_KEY` / `GEMINI_API_KEY` / `OPENROUTER_API_KEY`: review-backend keys the

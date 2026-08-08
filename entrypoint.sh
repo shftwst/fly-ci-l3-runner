@@ -17,7 +17,7 @@ set -euo pipefail
 : "${GH_TOKEN:?set a gh token as a fly secret}"
 # Model auth: the long-lived seat token from `claude setup-token`, REQUIRED. CI must not
 # use interactive credentials for the model (their rotating refresh token races the
-# operator's sessions). CLAUDE_CREDENTIALS_B64 is separate and for the Linear MCP only.
+# operator's sessions). CLAUDE_MCP_OAUTH_B64 is separate and for the Linear MCP only.
 : "${CLAUDE_CODE_OAUTH_TOKEN:?set the long-lived seat token from 'claude setup-token'}"
 
 TICK_SECS="${FAFF_TICK_SECS:-3600}"           # cheap pre-check cadence (hourly)
@@ -92,7 +92,7 @@ run_drain() {
        -v faff-state:/home/faff/state \
        -e TARGET_REPO="$TARGET_REPO" \
        -e CLAUDE_CODE_OAUTH_TOKEN="${CLAUDE_CODE_OAUTH_TOKEN:-}" \
-       -e CLAUDE_CREDENTIALS_B64="${CLAUDE_CREDENTIALS_B64:-}" \
+       -e CLAUDE_MCP_OAUTH_B64="${CLAUDE_MCP_OAUTH_B64:-}" \
        -e GH_TOKEN="$GH_TOKEN" \
        -e FAFF_DRAIN_TIMEOUT="$DRAIN_TIMEOUT" \
        -e FAFF_ISSUE_IDS="$ids" \
