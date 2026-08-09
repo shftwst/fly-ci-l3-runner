@@ -101,6 +101,7 @@ run_drain() {
        -e FAFF_ISSUE_IDS="$ids" \
        -e NVIDIA_API_KEY="${NVIDIA_API_KEY:-}" \
        -e GEMINI_API_KEY="${GEMINI_API_KEY:-}" \
+       -e GEMINI_API_KEY_FAFF_PAID="${GEMINI_API_KEY_FAFF_PAID:-}" \
        -e OPENROUTER_API_KEY="${OPENROUTER_API_KEY:-}" \
        -e FAFF_MODEL="${FAFF_MODEL:-claude-opus-4-8}" \
        -e FAFF_EFFORT="${FAFF_EFFORT:-high}" \
