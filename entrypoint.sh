@@ -32,6 +32,9 @@ DRAIN_TIMEOUT="${FAFF_DRAIN_TIMEOUT:-$(( (WINDOW_HOURS + 1) * 60 ))m}"
 TEAM_KEY="${FAFF_TEAM_KEY:-FAFF}"             # tracker team key for the pre-check query
 LOCK="/tmp/faff-drain.lock"
 echo "budget window ${WINDOW_HOURS}h; drain hard-timeout ${DRAIN_TIMEOUT} (above the window, so the window parks before the timeout culls)."
+# One consolidated config line up front (before the multi-minute dockerd + cage build), so a
+# glance at the boot log shows every resolved cadence/target env var actually in effect.
+echo "config: target ${TARGET_REPO} | cheap pre-check every ${TICK_SECS}s | full drain daily ${FULL_HOUR}:00 ${FULL_TZ} | budget window ${WINDOW_HOURS}h | drain ceiling ${DRAIN_TIMEOUT} | team ${TEAM_KEY}"
 
 # 1. Start dockerd on the vfs storage driver. A Firecracker microVM has no kernel
 #    overlay for a nested engine to mount, so vfs is the driver that works on fly.
