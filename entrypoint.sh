@@ -3,14 +3,14 @@
 # once, then run two cadences under a single lock (only one drain runs at a time; a
 # tick with one already running skips):
 #
-#   fast (FAFF_TICK_SECS, default 60): a cheap Linear query for eligible tickets. On a
-#   hit, run a drain over just those issues (`/faff-beep-boop <IDs>`, which skips tidy).
-#   A newly-eligible ticket is picked up within about a tick; an idle tick costs one
-#   API call, no container and no claude session.
+#   cheap pre-check (FAFF_TICK_SECS, default 3600): a cheap Linear query for eligible
+#   tickets each tick. On a hit, run a drain over just those issues (`/faff-beep-boop
+#   <IDs>`, which skips tidy). An idle tick costs one API call, no container/claude session.
 #
-#   full (FAFF_FULL_SECS, default 3600): a full `/faff-beep-boop` (tidy + discovery +
-#   build). This is the grooming pass AND the catch-all for anything the fast pre-check
-#   missed, so a wrong or unavailable pre-check degrades to hourly work, never to silence.
+#   full drain (daily at FAFF_FULL_HOUR in FAFF_FULL_TZ, default 5am Eastern): a full
+#   `/faff-beep-boop` (tidy + discovery + build). This is the grooming pass AND the catch-all
+#   for anything the pre-check missed, so a wrong or unavailable pre-check degrades to daily
+#   work, never to silence.
 set -euo pipefail
 
 : "${TARGET_REPO:?set TARGET_REPO as a fly secret, e.g. https://github.com/you/app}"
@@ -121,7 +121,7 @@ run_drain() {
 if ids=$(eligible_ids); then
   echo "pre-check: available. ${ids:+eligible now: $ids}${ids:-nothing eligible right now}"
 else
-  echo "pre-check: UNAVAILABLE (no LINEAR_API_KEY or query error). Fast pickup is off; the full drain every ${FULL_SECS}s is the only trigger. Set LINEAR_API_KEY (and FAFF_TEAM_KEY if not '${TEAM_KEY}') to enable 60s pickup."
+  echo "pre-check: UNAVAILABLE (no LINEAR_API_KEY or query error). Fast pickup is off; only the daily full drain at ${FULL_HOUR}:00 ${FULL_TZ} will trigger. Set LINEAR_API_KEY (and FAFF_TEAM_KEY if not '${TEAM_KEY}') to enable the ${TICK_SECS}s pre-check."
 fi
 
 # 5b. Warn if the review-backend keys are absent. faff's configured review slot may run an
