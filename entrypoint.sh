@@ -79,9 +79,16 @@ eligible_ids() {
   # (completed/canceled/duplicate) — client-side, in jq. A Done blocker means unblocked, so
   # it stays eligible; only genuinely-still-blocked issues are excluded.
   q='{"query":"query($t:String!){issues(first:50,filter:{and:[{labels:{some:{name:{eq:\"faff-automate\"}}}},{labels:{every:{name:{nin:[\"faff-parked\",\"faff-automation-hold\"]}}}}],team:{key:{eq:$t}},state:{type:{in:[\"backlog\",\"unstarted\"]}}}){nodes{identifier inverseRelations{nodes{type issue{state{type}}}}}}}","variables":{"t":"'"$TEAM_KEY"'"}}'
-  resp=$(curl -sS --max-time 20 -X POST https://api.linear.app/graphql \
-           -H "Authorization: $LINEAR_API_KEY" -H "Content-Type: application/json" \
-           -d "$q") || return 2
+  # Auth header via `-K -` (config on stdin), NOT `-H "Authorization: $LINEAR_API_KEY"`, so
+  # the key never becomes a curl argv element visible in `ps`/`/proc` on the fly host. This
+  # tick fires hourly, so an on-argv key would sit in host-visible argv far more often than
+  # the drain secrets did. `printf` is a bash builtin (no forked process, no argv of its own),
+  # and the config-file value is double-quoted; Linear keys are `[A-Za-z0-9_]`, so no escaping.
+  # The query body stays on argv via -d (not secret); stdin is consumed only by -K.
+  resp=$(printf 'header = "Authorization: %s"\n' "$LINEAR_API_KEY" \
+           | curl -sS -K - --max-time 20 -X POST https://api.linear.app/graphql \
+               -H "Content-Type: application/json" \
+               -d "$q") || return 2
   echo "$resp" | jq -e '.data.issues.nodes' >/dev/null 2>&1 || return 2
   echo "$resp" | jq -r '[.data.issues.nodes[] | select(([.inverseRelations.nodes[]? | select(.type=="blocks") | .issue.state.type as $s | select((["completed","canceled","duplicate"]|index($s))==null)] | length)==0) | .identifier] | join(" ")'
 }
@@ -91,18 +98,27 @@ run_drain() {
   local ids="$1" label
   if [ -n "$ids" ]; then label="build [$ids]"; else label="full drain (tidy + discovery + build)"; fi
   echo "=== $(date -u +%FT%TZ) $label ==="
+  # Secrets are passed NAME-ONLY (`-e KEY`, no `=value`): docker then inherits each value
+  # from this process's env (fly injects the secrets into PID 1's env, which we inherit), so
+  # the literal token never becomes a `docker run` argv element. `-e KEY=value` would expand
+  # the value onto the command line, where any process that can read `ps`/`/proc/<pid>/cmdline`
+  # on the fly host sees it for the drain's lifetime. Name-only closes that argv exposure while
+  # staying behaviour-equivalent (drain.sh reads every optional one as `${KEY:-}`, so an unset
+  # var docker simply omits is the same as the empty string it used to receive). Non-secret,
+  # derived, or defaulted vars below stay `KEY=value` — nothing sensitive, and some are computed
+  # here rather than inherited, so name-only would not carry them.
   if docker run --rm \
        -v faff-state:/home/faff/state \
        -e TARGET_REPO="$TARGET_REPO" \
-       -e CLAUDE_CODE_OAUTH_TOKEN="${CLAUDE_CODE_OAUTH_TOKEN:-}" \
-       -e CLAUDE_MCP_OAUTH_B64="${CLAUDE_MCP_OAUTH_B64:-}" \
-       -e GH_TOKEN="$GH_TOKEN" \
+       -e CLAUDE_CODE_OAUTH_TOKEN \
+       -e CLAUDE_MCP_OAUTH_B64 \
+       -e GH_TOKEN \
        -e FAFF_DRAIN_TIMEOUT="$DRAIN_TIMEOUT" \
        -e FAFF_ISSUE_IDS="$ids" \
-       -e NVIDIA_API_KEY="${NVIDIA_API_KEY:-}" \
-       -e GEMINI_API_KEY="${GEMINI_API_KEY:-}" \
-       -e GEMINI_API_KEY_FAFF_PAID="${GEMINI_API_KEY_FAFF_PAID:-}" \
-       -e OPENROUTER_API_KEY="${OPENROUTER_API_KEY:-}" \
+       -e NVIDIA_API_KEY \
+       -e GEMINI_API_KEY \
+       -e GEMINI_API_KEY_FAFF_PAID \
+       -e OPENROUTER_API_KEY \
        -e FAFF_MODEL="${FAFF_MODEL:-claude-opus-4-8}" \
        -e FAFF_EFFORT="${FAFF_EFFORT:-high}" \
        -e FAFF_WINDOW_HOURS="${FAFF_WINDOW_HOURS:-5}" \
