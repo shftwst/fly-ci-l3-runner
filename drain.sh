@@ -104,6 +104,17 @@ fi
 "$faff" config set --force budget.window.tokens "${FAFF_WINDOW_TOKENS:?set FAFF_WINDOW_TOKENS: the 5h window token ceiling}" >/dev/null
 "$faff" config set --force budget.at_ceiling park-until-window-reset >/dev/null
 
+# 3c. Sentry acting. This runner is UNATTENDED by construction — a self-directed
+#     faff-on-faff drain with no human on the loop — and it structurally CANNOT be L4
+#     (run-outward refuses a self-referential target, ADR-0069), so the L4-minted sentry
+#     kill-switch is off the table. Turn the FAFF-717 abort kill-switch on explicitly so a
+#     runaway (wall-clock / budget / repeated-identical-failure) aborts the run GRACEFULLY
+#     (resumable, at a checkpoint) instead of being SIGKILLed by the drain wall-clock
+#     timeout below — which orphans an In Progress claim (the run-20260809-105834 incident).
+#     Written into this ephemeral clone only, never committed to the target. See FAFF-763
+#     (sentry acting keys on attendedness, not the mint) for the reframe this anticipates.
+"$faff" config set --force autonomous.sentry_acting true >/dev/null
+
 # Optional review-slot overrides. The target's committed spec_review (prep) and review
 # (graft) slots may both be heavy adversarial reviewers whose free-tier backends exhaust
 # their daily quota under a sustained runner's back-to-back reviews (fine for sporadic
