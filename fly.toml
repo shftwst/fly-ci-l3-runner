@@ -25,6 +25,6 @@ primary_region = "yyz"   # Toronto — nearest available fly region to Ottawa (f
 # dockerd on vfs duplicates image layers, so give it headroom. 2gb RAM and 2 shared
 # CPUs matched the earlier fly rig; bump if the cage build or a drain is starved.
 [[vm]]
-  size   = "shared-cpu-2x"
-  memory = "2048"
-  cpus   = 2
+  size   = "shared-cpu-4x"
+  memory = "4096"
+  cpus   = 4
