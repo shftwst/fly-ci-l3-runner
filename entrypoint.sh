@@ -23,18 +23,36 @@ set -euo pipefail
 TICK_SECS="${FAFF_TICK_SECS:-3600}"           # cheap pre-check cadence (hourly)
 FULL_HOUR="${FAFF_FULL_HOUR:-5}"              # hour-of-day (0-23) for the once-daily full drain
 FULL_TZ="${FAFF_FULL_TZ:-America/New_York}"   # zone FULL_HOUR is read in (IANA => DST-aware Eastern)
-WINDOW_HOURS="${FAFF_WINDOW_HOURS:-5}"        # subscription budget-window length
-# The wall-clock ceiling is a LAST-RESORT hang catch, deliberately ABOVE the budget
-# window so the window governor parks gracefully (writing park-until-window-reset +
-# resume_at at a between-units checkpoint) before this hard SIGKILL can cull the drain.
-# Default = window + 1h; overridable, but a value <= the window would defeat the park.
-DRAIN_TIMEOUT="${FAFF_DRAIN_TIMEOUT:-$(( (WINDOW_HOURS + 1) * 60 ))m}"
+WINDOW_HOURS="${FAFF_WINDOW_HOURS:-5}"        # budget-window length (only meaningful with FAFF_WINDOW_TOKENS)
 TEAM_KEY="${FAFF_TEAM_KEY:-FAFF}"             # tracker team key for the pre-check query
 LOCK="/tmp/faff-drain.lock"
-echo "budget window ${WINDOW_HOURS}h; drain hard-timeout ${DRAIN_TIMEOUT} (above the window, so the window parks before the timeout culls)."
+# Budget window is OPTIONAL: active only when FAFF_WINDOW_TOKENS is set (drain.sh writes it into
+# the clone then); otherwise off and the drain leans on faff's own sentry poller + this timeout.
+#
+# The drain hard-timeout is a LAST-RESORT wall-clock SIGKILL so a wedged drain cannot hold the
+# lock forever. It is NOT the primary wedge guard: faff-beep-boop spawns a sentry poller on every
+# run that (with autonomous.sentry_acting, which drain.sh sets in the clone) resumably ABORTS a wedged run on a
+# stale heartbeat (~900s) or its 4h run-elapsed ceiling. This SIGKILL only backstops the case
+# where that poller never started. Its DEFAULT depends on the window, so a window-named var never
+# governs wall-clock when the window is off:
+#   window ON  -> WINDOW_HOURS + 1h, keeping the timeout ABOVE the window so the governor parks
+#                 gracefully (park-until-window-reset + resume_at) before the SIGKILL culls it.
+#   window OFF -> a coarse fixed ceiling well above faff's 4h sentry ceiling, with NO reference to
+#                 WINDOW_HOURS. 24h WHILE WE TEST the sentry-owned wedge handling; tighten once the
+#                 poller's resumable abort is confirmed doing the real work.
+# An explicit FAFF_DRAIN_TIMEOUT overrides either default. Resolve both the window description
+# and the timeout in one branch so the boot log is honest about what is actually in effect.
+if [ -n "${FAFF_WINDOW_TOKENS:-}" ]; then
+  WINDOW_DESC="${WINDOW_HOURS}h / ${FAFF_WINDOW_TOKENS} tokens"
+  DRAIN_TIMEOUT="${FAFF_DRAIN_TIMEOUT:-$(( (WINDOW_HOURS + 1) * 60 ))m}"
+else
+  WINDOW_DESC="off (set FAFF_WINDOW_TOKENS to enable)"
+  DRAIN_TIMEOUT="${FAFF_DRAIN_TIMEOUT:-1440m}"   # 24h backstop while testing sentry-owned wedge handling
+fi
+echo "budget window ${WINDOW_DESC}; drain hard-timeout ${DRAIN_TIMEOUT}."
 # One consolidated config line up front (before the multi-minute dockerd + cage build), so a
 # glance at the boot log shows every resolved cadence/target env var actually in effect.
-echo "config: target ${TARGET_REPO} | cheap pre-check every ${TICK_SECS}s | full drain daily ${FULL_HOUR}:00 ${FULL_TZ} | budget window ${WINDOW_HOURS}h | drain ceiling ${DRAIN_TIMEOUT} | team ${TEAM_KEY}"
+echo "config: target ${TARGET_REPO} | cheap pre-check every ${TICK_SECS}s | full drain daily ${FULL_HOUR}:00 ${FULL_TZ} | budget window ${WINDOW_DESC} | drain ceiling ${DRAIN_TIMEOUT} | team ${TEAM_KEY}"
 
 # 1. Start dockerd on the vfs storage driver. A Firecracker microVM has no kernel
 #    overlay for a nested engine to mount, so vfs is the driver that works on fly.
@@ -122,7 +140,7 @@ run_drain() {
        -e FAFF_MODEL="${FAFF_MODEL:-claude-opus-4-8}" \
        -e FAFF_EFFORT="${FAFF_EFFORT:-high}" \
        -e FAFF_WINDOW_HOURS="${FAFF_WINDOW_HOURS:-5}" \
-       -e FAFF_WINDOW_TOKENS="${FAFF_WINDOW_TOKENS:?set FAFF_WINDOW_TOKENS: the 5h window token ceiling}" \
+       -e FAFF_WINDOW_TOKENS="${FAFF_WINDOW_TOKENS:-}" \
        -e FAFF_REVIEW_SLOT="${FAFF_REVIEW_SLOT:-}" \
        -e FAFF_SPEC_REVIEW_SLOT="${FAFF_SPEC_REVIEW_SLOT:-}" \
        -e FAFF_DROP_BACKENDS="${FAFF_DROP_BACKENDS:-}" \

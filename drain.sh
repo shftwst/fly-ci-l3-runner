@@ -93,16 +93,25 @@ if [ -d /home/faff/state ]; then
   echo "resume state persisted on the mounted volume (.faff/resume, .faff/runs)."
 fi
 
-# 3b. Budget: a rolling window governor aligned to the subscription 5h usage window. Both
-#     an hours figure and a token ceiling are required, or the window is inert. at_ceiling
-#     park-until-window-reset makes an unattended run PARK when the window's token ceiling
-#     is hit and resume when the window resets, instead of burning into overage. Written
-#     into this ephemeral clone only, never committed to the target.
+# 3b. Budget: an OPTIONAL rolling window governor aligned to the subscription usage window.
+#     OFF unless FAFF_WINDOW_TOKENS is set. With it, write the window (hours + token ceiling)
+#     and at_ceiling park-until-window-reset, so an unattended run PARKS when the window's
+#     tokens are spent and resumes when it resets, instead of running the model session into
+#     the raw subscription rate limit mid-build. Without it, leave the target's committed
+#     budget config untouched and rely on the drain wall-clock timeout (below) plus the
+#     subscription's own limit. A token ceiling with no hours (or vice versa) is inert, so
+#     both are gated on FAFF_WINDOW_TOKENS. Written into this ephemeral clone only, never
+#     committed to the target.
 # --force: the target's committed .faffrc may already set these (faff's own sets
 # at_ceiling: escalate), and config set refuses to overwrite an existing value without it.
-"$faff" config set --force budget.window.hours "${FAFF_WINDOW_HOURS:-5}" >/dev/null
-"$faff" config set --force budget.window.tokens "${FAFF_WINDOW_TOKENS:?set FAFF_WINDOW_TOKENS: the 5h window token ceiling}" >/dev/null
-"$faff" config set --force budget.at_ceiling park-until-window-reset >/dev/null
+if [ -n "${FAFF_WINDOW_TOKENS:-}" ]; then
+  "$faff" config set --force budget.window.hours "${FAFF_WINDOW_HOURS:-5}" >/dev/null
+  "$faff" config set --force budget.window.tokens "$FAFF_WINDOW_TOKENS" >/dev/null
+  "$faff" config set --force budget.at_ceiling park-until-window-reset >/dev/null
+  echo "budget window: ${FAFF_WINDOW_HOURS:-5}h / ${FAFF_WINDOW_TOKENS} tokens (park-until-window-reset at ceiling)."
+else
+  echo "budget window: off (FAFF_WINDOW_TOKENS unset). Relying on the drain wall-clock timeout and the subscription's own limit; the clone's committed budget config is left as-is."
+fi
 
 # 3c. Sentry acting. This runner is UNATTENDED by construction — a self-directed
 #     faff-on-faff drain with no human on the loop — and it structurally CANNOT be L4
@@ -150,10 +159,15 @@ PROMPT="/faff-beep-boop"
 [ -n "${FAFF_ISSUE_IDS:-}" ] && PROMPT="/faff-beep-boop ${FAFF_ISSUE_IDS}"
 FAFF_RUN_DIR="/home/faff/app/.faff/runs/run-$(date -u +%Y%m%d-%H%M%S)-fly-l3"
 export FAFF_RUN_DIR
-# Hard-timeout defaults ABOVE the budget window (window + 1h) so the window governor
-# parks gracefully before this SIGKILL can cull the drain. entrypoint passes an explicit
-# value; this fallback keeps the property if drain.sh is run standalone.
-DRAIN_TIMEOUT="${FAFF_DRAIN_TIMEOUT:-$(( (${FAFF_WINDOW_HOURS:-5} + 1) * 60 ))m}"
+# Hard-timeout: entrypoint always passes an explicit value, so this fallback only fires if
+# drain.sh runs standalone. It is a coarse BACKSTOP, not the wedge guard (faff's sentry poller
+# is). Mirror entrypoint's split: window on -> WINDOW_HOURS + 1h (park-before-kill); window off
+# -> a 24h ceiling above faff's 4h sentry ceiling, while we test sentry-owned wedge handling.
+if [ -n "${FAFF_WINDOW_TOKENS:-}" ]; then
+  DRAIN_TIMEOUT="${FAFF_DRAIN_TIMEOUT:-$(( (${FAFF_WINDOW_HOURS:-5} + 1) * 60 ))m}"
+else
+  DRAIN_TIMEOUT="${FAFF_DRAIN_TIMEOUT:-1440m}"
+fi
 run_claude() {
   timeout "$DRAIN_TIMEOUT" \
     claude -p "$PROMPT" \

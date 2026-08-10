@@ -94,8 +94,11 @@ fly secrets set \
   GEMINI_API_KEY="$(pass faff/gemini)" \
   OPENROUTER_API_KEY="$(pass faff/openrouter)"
 
-# 3. The 5h subscription-window budget (required — the drain sets it in the clone):
-fly secrets set FAFF_WINDOW_HOURS=5 FAFF_WINDOW_TOKENS=<your 5h token ceiling>
+# 3. Optional: the subscription-window budget. Set FAFF_WINDOW_TOKENS to turn it on (the
+#    drain then writes it into the clone); leave it unset to run without a window (the drain
+#    wall-clock timeout and the subscription's own limit still apply). See the note below on
+#    sizing, and why you may not need this at all if you never saturate the window.
+fly secrets set FAFF_WINDOW_HOURS=5 FAFF_WINDOW_TOKENS=<your window token ceiling>
 
 # 4. Optional tuning (defaults: hourly cheap tick, daily full at 5am Eastern, hard-timeout =
 #    window+1h, team FAFF, model claude-opus-4-8, effort high). Leave FAFF_DRAIN_TIMEOUT unset
@@ -137,11 +140,17 @@ Set as fly secrets or env:
 - `LINEAR_API_KEY` (enables the fast pre-check): a Linear personal API key.
 - `NVIDIA_API_KEY` / `GEMINI_API_KEY` / `OPENROUTER_API_KEY`: review-backend keys the
   target's review slot needs (required for faff; builds park at review without them).
-- `FAFF_WINDOW_TOKENS` (required): the token ceiling for the 5h subscription window. The
-  drain sets `budget.window.{hours,tokens}` and `at_ceiling: park-until-window-reset` in
-  the clone, so an unattended run parks when the 5h window's tokens are spent and resumes
-  when the window resets, rather than escalating or burning into overage.
+- `FAFF_WINDOW_TOKENS` (optional; unset = window off): the token ceiling for the subscription
+  window. When set, the drain writes `budget.window.{hours,tokens}` and `at_ceiling:
+  park-until-window-reset` into the clone, so an unattended run parks when the window's tokens
+  are spent and resumes when the window resets, instead of running the model session into the
+  raw subscription rate limit mid-build. When unset, the drain writes no budget config (the
+  clone's committed config stands) and relies on `FAFF_DRAIN_TIMEOUT` plus the subscription's
+  own limit. On a subscription seat there is no overage billing, so the window's only job is a
+  clean pre-emptive park; skip it unless you actually saturate the window and want that.
 - `FAFF_WINDOW_HOURS` (default 5): the window length; match your subscription usage window.
+  Only takes effect when `FAFF_WINDOW_TOKENS` is set. It also derives the default
+  `FAFF_DRAIN_TIMEOUT` (window + 1h) even when the window itself is off.
 - `FAFF_MODEL` (default `claude-opus-4-8`) / `FAFF_EFFORT` (default `high`): the model and
   effort the drain's `claude -p` runs on.
 - `FAFF_TEAM_KEY` (default `FAFF`): the tracker team the pre-check queries.
@@ -149,12 +158,17 @@ Set as fly secrets or env:
 - `FAFF_FULL_HOUR` (default 5): hour-of-day (0-23) for the once-daily full drain.
 - `FAFF_FULL_TZ` (default `America/New_York`): the zone `FAFF_FULL_HOUR` is read in. An IANA
   name keeps it correct across DST (so 5 stays 5am Eastern year-round).
-- `FAFF_DRAIN_TIMEOUT` (default window + 1h): last-resort hard-timeout for a single drain,
-  derived above the budget window so the window parks gracefully before this SIGKILL culls
-  the drain. Only set it explicitly if you want a different ceiling, and keep it above
-  `FAFF_WINDOW_HOURS`. Note the budget window counts all token classes including cache
-  reads, which dominate on Opus, so size `FAFF_WINDOW_TOKENS` in hundreds of millions, not
-  single millions (faff's own all-run backstop is 3000M for comparison).
+- `FAFF_DRAIN_TIMEOUT` (default: window + 1h when the window is on, else 24h): last-resort
+  wall-clock SIGKILL for a single drain, and only a BACKSTOP. faff's sentry poller (spawned by
+  beep-boop on every run, resumably aborting on a ~900s stale heartbeat or its 4h run-elapsed
+  ceiling, since `drain.sh` sets `autonomous.sentry_acting` in the clone) is the real wedge guard; this timeout
+  only covers the case where that poller never started. When the window is on, the default sits
+  above it so the window parks gracefully before this SIGKILL fires; keep any explicit value
+  above `FAFF_WINDOW_HOURS`. When the window is off, the default is a coarse 24h ceiling well
+  above faff's 4h sentry ceiling (deliberately high WHILE the sentry-owned wedge handling is
+  being tested; tighten once confirmed). If you use the window, note it counts all token classes
+  including cache reads, which dominate on Opus, so size `FAFF_WINDOW_TOKENS` in hundreds of
+  millions, not single millions (faff's own all-run backstop is 3000M for comparison).
 
 **Triggering.** Two cadences share one lock, so only one drain runs at a time:
 
