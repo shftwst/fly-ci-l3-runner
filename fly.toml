@@ -22,8 +22,9 @@ primary_region = "yyz"   # Toronto — nearest available fly region to Ottawa (f
   source = "faff_docker"
   destination = "/var/lib/docker"
 
-# dockerd on vfs duplicates image layers, so give it headroom. 2gb RAM and 2 shared
-# CPUs matched the earlier fly rig; bump if the cage build or a drain is starved.
+# dockerd on vfs duplicates image layers, so give it headroom. performance-4x (dedicated
+# CPUs) after shared-cpu-4x starved the cage build / drains; dedicated cores also lift drain
+# throughput. Bump further if the cage build or a drain is still CPU-starved.
 [[vm]]
   size   = "performance-4x"
   memory = "4096"
