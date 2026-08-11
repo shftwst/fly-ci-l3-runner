@@ -24,8 +24,9 @@ primary_region = "yyz"   # Toronto — nearest available fly region to Ottawa (f
 
 # dockerd on vfs duplicates image layers, so give it headroom. performance-4x (dedicated
 # CPUs) after shared-cpu-4x starved the cage build / drains; dedicated cores also lift drain
-# throughput. Bump further if the cage build or a drain is still CPU-starved.
+# throughput. Memory is 8192 because fly enforces >= 2GB per dedicated core (4 cores -> 8192
+# floor); 4096 is rejected on performance sizes. Bump further if a drain is still starved.
 [[vm]]
   size   = "performance-4x"
-  memory = "4096"
+  memory = "8192"
   cpus   = 4
