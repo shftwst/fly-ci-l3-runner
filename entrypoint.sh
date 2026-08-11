@@ -75,6 +75,12 @@ echo "dockerd up."
 echo "building the cage image ..."
 docker build -t faff-cage /cage
 
+# Each rebuild above retags faff-cage, dropping the previous image to dangling (<none>:<none>).
+# The vfs storage driver has no copy-on-write, so every dangling image holds a full physical
+# copy of its layers on the 30GB volume: left alone, one boot/redeploy = ~1GB of dead weight.
+# Prune here so the volume doesn't creep toward full over months of restarts.
+docker image prune -f
+
 # 2b. Persistent state volume for faff's gitignored resume store + run-dirs. A named volume
 #     lives under /var/lib/docker/volumes, which is on the mounted 30GB volume, so it
 #     survives Machine restarts. Mounted into each cage so .faff/resume + .faff/runs persist
