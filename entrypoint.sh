@@ -153,7 +153,11 @@ run_drain() {
 
 # 5. One startup report on whether the fast pre-check is available.
 if ids=$(eligible_ids); then
-  echo "pre-check: available. ${ids:+eligible now: $ids}${ids:-nothing eligible right now}"
+  if [ -n "$ids" ]; then
+    echo "pre-check: available. eligible now: $ids"
+  else
+    echo "pre-check: available. nothing eligible right now"
+  fi
 else
   echo "pre-check: UNAVAILABLE (no LINEAR_API_KEY or query error). Fast pickup is off; only the daily full drain at ${FULL_HOUR}:00 ${FULL_TZ} will trigger. Set LINEAR_API_KEY (and FAFF_TEAM_KEY if not '${TEAM_KEY}') to enable the ${TICK_SECS}s pre-check."
 fi
@@ -169,7 +173,7 @@ fi
 
 # 6. The loop. Cadence:
 #    - CHEAP targeted pass (fast pre-check -> explicit-list drain of just the eligible issues,
-#      which SKIPS tidy + discovery) on startup, then once an HOUR.
+#      which SKIPS tidy + discovery) on startup, then every TICK_SECS (FAFF_TICK_SECS, default 1h).
 #    - one FULL drain (tidy + discovery + build) per day at FULL_HOUR in FULL_TZ (5am Eastern
 #      default; the IANA zone tracks DST so it stays 5am local year-round).
 #    flock serialises: a tick that cannot take the lock means a drain is still running and skips.
@@ -181,7 +185,7 @@ eastern_hour() { echo $(( 10#$(TZ="$FULL_TZ" date +%H) )); }   # 10# forces base
 # Startup is CHEAP: seed the marker to today so the first full is tomorrow at FULL_HOUR (never on
 # boot), then run one cheap targeted pass immediately so ready work starts without waiting an hour.
 eastern_day > "$FULL_MARK"
-echo "runner ready. cheap pre-check on startup + hourly (${TICK_SECS}s); full drain daily at ${FULL_HOUR}:00 ${FULL_TZ}."
+echo "runner ready. cheap pre-check on startup + every ${TICK_SECS}s; full drain daily at ${FULL_HOUR}:00 ${FULL_TZ}."
 if flock -n "$LOCK" -c true 2>/dev/null; then
   if hits=$(eligible_ids) && [ -n "$hits" ]; then
     echo "startup: eligible now [$hits] -> cheap targeted drain."
@@ -201,7 +205,7 @@ while true; do
     # picked up by the 6am/7am tick rather than lost for the day.
     ( exec 9>"$LOCK"; flock -n 9 || exit 0; eastern_day > "$FULL_MARK"; run_drain "" ) &
   else
-    # Cheap pre-check. Always log its outcome (error / eligible / nothing) so the hourly
+    # Cheap pre-check. Always log its outcome (error / eligible / nothing) so each
     # tick is itself the liveness signal -- no separate heartbeat. Only the eligible case
     # starts a drain; the flock guard above already prevents a parallel one.
     hits=$(eligible_ids); rc=$?
