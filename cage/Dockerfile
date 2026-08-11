@@ -9,8 +9,11 @@
 FROM node:22-bookworm-slim
 
 # Root layer: system tools + the harness, then a non-root user for the drain.
+# openssh-client is not incidental: it provides ssh-keygen, which git needs for SSH
+# commit signing (gpg.format=ssh) and verify-commit. --no-install-recommends omits it
+# otherwise. Keep it if commits must be GitHub-Verified.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-      git ca-certificates curl util-linux coreutils gh \
+      git ca-certificates curl util-linux coreutils gh openssh-client \
     && npm install -g @anthropic-ai/claude-code \
     && npm cache clean --force \
     && useradd -m -s /bin/bash faff \

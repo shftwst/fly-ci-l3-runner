@@ -12,6 +12,10 @@ set -euo pipefail
 # section carries a ROTATING refresh token, and a CI process refreshing it would race the
 # operator's own sessions and break auth on one side. The long-lived token does not rotate.
 : "${CLAUDE_CODE_OAUTH_TOKEN:?set the long-lived seat token from 'claude setup-token' (CI must not use interactive credentials for model auth)}"
+# Operator identity for the DCO sign-off, REQUIRED and fail-closed (entrypoint guards these at
+# Machine boot too; re-guarded here so a standalone drain cannot commit under a machine ident).
+: "${GIT_OPERATOR_NAME:?refusing to drain: GIT_OPERATOR_NAME is unset; the DCO sign-off must carry the operator identity, never a machine ident}"
+: "${GIT_OPERATOR_EMAIL:?refusing to drain: GIT_OPERATOR_EMAIL is unset (must be a verified email registered to the operator on GitHub)}"
 
 # Refresh the faff plugin to the latest marketplace release on every drain. The
 # Dockerfile's `claude plugin install` is a cached layer that pinned us at 0.13.0;
@@ -62,8 +66,54 @@ fi
 #    `gh pr create` uses the same token. One token, one env var — the path this token already
 #    uses everywhere else.
 gh auth setup-git
-git config --global user.email "faff-runner@local"
-git config --global user.name "faff-runner"
+
+# 2b. Operator identity, DCO sign-off, and (optional) SSH commit signing. faff builds commit
+#     with `git commit -s`, which stamps a Signed-off-by trailer from user.name/user.email; a
+#     downstream dco check requires it, and policy requires the OPERATOR's identity, never a
+#     machine ident (a machine cannot certify origin rights). Written to the cage's GLOBAL git
+#     config so every worktree the build creates inherits it, and re-done each drain because the
+#     cage is a fresh --rm container. GIT_OPERATOR_* are guarded at the top (fail closed).
+git config --global user.name  "$GIT_OPERATOR_NAME"
+git config --global user.email "$GIT_OPERATOR_EMAIL"
+
+# SSH signing is optional: only when a key is provided. GIT_SSH_SIGNING_KEY_B64 is base64 of a
+# dedicated, passphrase-less private signing key (base64 so newlines survive env transport). It
+# never touches the image or the mounted state volume: decode it into a container-local mktemp
+# dir (0600) that dies with this --rm container. The value is only read from the env via a shell
+# builtin (never on argv/`ps`) and never echoed.
+if [ -n "${GIT_SSH_SIGNING_KEY_B64:-}" ]; then
+  keydir="$(mktemp -d)"; chmod 700 "$keydir"
+  printf '%s' "$GIT_SSH_SIGNING_KEY_B64" | base64 -d > "$keydir/signing_key"
+  chmod 600 "$keydir/signing_key"
+  # Derive the public half for the LOCAL verify-commit self-check below (GitHub verifies against
+  # the signing keys registered on the operator's account, so allowed_signers is only for our own
+  # check). </dev/null so a mistakenly passphrase-protected key fails fast, never hangs headless.
+  pub="$(ssh-keygen -y -f "$keydir/signing_key" </dev/null)"
+  printf '%s %s\n' "$GIT_OPERATOR_EMAIL" "$pub" > "$keydir/allowed_signers"
+  git config --global gpg.format ssh
+  git config --global user.signingkey "$keydir/signing_key"
+  git config --global gpg.ssh.allowedSignersFile "$keydir/allowed_signers"
+  git config --global commit.gpgsign true
+  git config --global tag.gpgsign true
+  signing=on
+else
+  git config --global commit.gpgsign false
+  signing=off
+fi
+
+# Self-check: prove a real signed-off (and, if enabled, signed) commit works BEFORE the drain
+# does any work, so a broken identity/key fails the drain closed instead of producing commits
+# that the dco check (or GitHub) later rejects.
+scheck="$(mktemp -d)"; git -C "$scheck" init -q
+( cd "$scheck" && git commit -s --allow-empty -m "runner identity self-check" -q )
+git -C "$scheck" log -1 --format='%(trailers:key=Signed-off-by)' | grep -q "$GIT_OPERATOR_EMAIL" \
+  || { echo "FATAL: git self-check found no Signed-off-by trailer with the operator email"; exit 1; }
+if [ "$signing" = on ]; then
+  git -C "$scheck" verify-commit HEAD >/dev/null 2>&1 \
+    || { echo "FATAL: git self-check commit did not verify against the signing key"; exit 1; }
+fi
+rm -rf "$scheck"
+echo "git identity: $GIT_OPERATOR_NAME <$GIT_OPERATOR_EMAIL>, ssh signing=$signing"
 
 # 2a. Auth preflight — FAIL LOUD AT BOOT, never mid-build. The whole point of a cage is that
 #     a build agent can't tell "the repo won't let me push" (infra) from "this work can't be

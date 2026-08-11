@@ -19,6 +19,13 @@ set -euo pipefail
 # use interactive credentials for the model (their rotating refresh token races the
 # operator's sessions). CLAUDE_MCP_OAUTH_B64 is separate and for the Linear MCP only.
 : "${CLAUDE_CODE_OAUTH_TOKEN:?set the long-lived seat token from 'claude setup-token'}"
+# Operator identity for the DCO sign-off, REQUIRED and fail-closed: faff builds commit with
+# `git commit -s`, a downstream dco check requires the Signed-off-by trailer, and policy
+# requires the OPERATOR's identity (a machine ident cannot certify origin rights). Refuse to
+# start rather than let a build commit under a git default. Forwarded into the cage below;
+# the optional GIT_SSH_SIGNING_KEY_B64 (SSH signing) is forwarded there too.
+: "${GIT_OPERATOR_NAME:?refusing to start: set GIT_OPERATOR_NAME as a fly secret (the DCO sign-off must carry the operator identity, never a machine ident)}"
+: "${GIT_OPERATOR_EMAIL:?refusing to start: set GIT_OPERATOR_EMAIL as a fly secret (must be a verified email registered to the operator on GitHub)}"
 
 TICK_SECS="${FAFF_TICK_SECS:-3600}"           # cheap pre-check cadence (hourly)
 FULL_HOUR="${FAFF_FULL_HOUR:-5}"              # hour-of-day (0-23) for the once-daily full drain
@@ -131,6 +138,9 @@ run_drain() {
        -e CLAUDE_CODE_OAUTH_TOKEN \
        -e CLAUDE_MCP_OAUTH_B64 \
        -e GH_TOKEN \
+       -e GIT_OPERATOR_NAME \
+       -e GIT_OPERATOR_EMAIL \
+       -e GIT_SSH_SIGNING_KEY_B64 \
        -e FAFF_DRAIN_TIMEOUT="$DRAIN_TIMEOUT" \
        -e FAFF_ISSUE_IDS="$ids" \
        -e NVIDIA_API_KEY \
