@@ -13,11 +13,24 @@ set -euo pipefail
 # operator's own sessions and break auth on one side. The long-lived token does not rotate.
 : "${CLAUDE_CODE_OAUTH_TOKEN:?set the long-lived seat token from 'claude setup-token' (CI must not use interactive credentials for model auth)}"
 
+# Refresh the faff plugin to the latest marketplace release on every drain. The
+# Dockerfile's `claude plugin install` is a cached layer that pinned us at 0.13.0;
+# this runtime update runs fresh each `docker run`, so published releases go live.
+# Warn-and-continue on failure (a marketplace hiccup shouldn't kill a drain; the
+# cached version is still usable).
+echo "refreshing faff plugin to the latest marketplace release ..."
+claude plugin update faff@faff 2>&1 || claude plugin install faff@faff --force 2>&1 || echo "WARN: plugin refresh failed; using cached version"
+
 # Resolve the faff CLI. faff is installed as a plugin, so its binary lives under the
-# plugin dir, not on PATH. Resolve it the way faff's own skills do.
+# plugin dir, not on PATH. The refresh above adds a new versioned cache dir
+# (…/cache/faff/faff/<ver>/…) beside the image's baked-in 0.13.0 WITHOUT pruning it, so
+# resolve the HIGHEST version — an unsorted `find | head -1` could otherwise pick the
+# stale one (filesystem order is arbitrary). sort -V orders by semver.
 faff=$(command -v faff || true)
+[ -x "$faff" ] || faff=$(find "$HOME/.claude" -path '*/cache/faff/faff/*/skills/faff/bin/faff' -type f 2>/dev/null | sort -V | tail -1)
 [ -x "$faff" ] || faff=$(find "$HOME/.claude" -path '*/skills/faff/bin/faff' -type f 2>/dev/null | head -1)
 [ -x "$faff" ] || { echo "faff CLI not found after plugin install"; exit 1; }
+echo "faff CLI resolved: $faff"
 
 # 0. Tracker auth ONLY. faff drives Linear through the hosted Linear MCP (OAuth), and
 #    there is no browser here to authorize it, so carry the pre-authorized token:
