@@ -187,6 +187,42 @@ fi
 #     (sentry acting keys on attendedness, not the mint) for the reframe this anticipates.
 "$faff" config set --force autonomous.sentry_acting true >/dev/null
 
+# 3d. Andon push-alerting. faff's andon channel POSTs a minimal notification (issue IDs +
+#     event class, never spec/diff/transcript content) to a webhook on run-critical events
+#     — parks, sentry trips, budget breaches, run-end. It reads TOP-LEVEL andon.* keys
+#     (NOT sentry.andon.*, despite the sibling naming), and with andon.url unset it is a
+#     complete no-op, so the whole block is gated on ANDON_URL. Written into this ephemeral
+#     clone only, never committed to the target. --force: config set refuses to overwrite an
+#     existing value without it, and the target's committed .faffrc may already carry one.
+if [ -n "${ANDON_URL:-}" ]; then
+  "$faff" config set --force andon.url "$ANDON_URL" >/dev/null
+  # format: only override when set, so unset -> faff's own default ("generic"). Slack/Discord/
+  # ntfy webhooks need the matching format or the generic payload is rejected by the sink.
+  [ -n "${ANDON_FORMAT:-}" ] && "$faff" config set --force andon.format "$ANDON_FORMAT" >/dev/null
+  [ -n "${ANDON_TOKEN:-}" ]  && "$faff" config set --force andon.token "$ANDON_TOKEN" >/dev/null
+  # events: the andon consumer requires a real YAML list (Array.isArray), but config set can
+  # only write a scalar string — which the consumer silently drops, falling back to its
+  # default set (which omits run-end). So write a placeholder scalar to create the line at
+  # the right place/indent, then rewrite it in place as a block sequence (the form faff's
+  # config reader parses as an array). Same patch-the-clone idiom as FAFF_DROP_BACKENDS
+  # below. ANDON_EVENTS is a comma-separated list of andon event classes; unset -> faff's
+  # default set is used unchanged.
+  if [ -n "${ANDON_EVENTS:-}" ]; then
+    "$faff" config set --force andon.events __ANDON_EVENTS__ >/dev/null
+    rc=$("$faff" config path 2>/dev/null | head -1)
+    [ -f "$rc" ] || rc=.faffrc.yaml
+    block="  events:"
+    IFS=','; for e in $ANDON_EVENTS; do
+      e=$(printf '%s' "$e" | tr -d '[:space:]')
+      [ -n "$e" ] && block="$block\\n    - $e"
+    done; unset IFS
+    sed -i "s/^  events: __ANDON_EVENTS__.*/$block/" "$rc"
+  fi
+  echo "andon: on -> ${ANDON_URL%%\?*} (format ${ANDON_FORMAT:-generic}, events ${ANDON_EVENTS:-<faff default>})."
+else
+  echo "andon: off (ANDON_URL unset). No run-critical push notifications; events.jsonl remains the sole record."
+fi
+
 # Optional review-slot overrides. The target's committed spec_review (prep) and review
 # (graft) slots may both be heavy adversarial reviewers whose free-tier backends exhaust
 # their daily quota under a sustained runner's back-to-back reviews (fine for sporadic

@@ -100,6 +100,12 @@ fly secrets set \
 #    sizing, and why you may not need this at all if you never saturate the window.
 fly secrets set FAFF_WINDOW_HOURS=5 FAFF_WINDOW_TOKENS=<your window token ceiling>
 
+# 3b. Optional: andon push-alerting. Set ANDON_URL to a webhook to get a minimal push
+#     notification (issue IDs + event class only) on parks, sentry trips, budget breaches,
+#     and (if you add run-end) drain completion. Set ANDON_FORMAT to match the sink.
+fly secrets set ANDON_URL="$(pass faff/andon-webhook)" ANDON_FORMAT=slack \
+  ANDON_EVENTS=park,sentry-trip,budget-breach,run-end
+
 # 4. Optional tuning (defaults: hourly cheap tick, daily full at 5am Eastern, hard-timeout =
 #    window+1h, team FAFF, model claude-opus-4-8, effort high). Leave FAFF_DRAIN_TIMEOUT unset
 #    to keep it derived above the window; only set it if you deliberately want a different
@@ -169,6 +175,21 @@ Set as fly secrets or env:
   being tested; tighten once confirmed). If you use the window, note it counts all token classes
   including cache reads, which dominate on Opus, so size `FAFF_WINDOW_TOKENS` in hundreds of
   millions, not single millions (faff's own all-run backstop is 3000M for comparison).
+- `ANDON_URL` (optional; unset = andon off): a webhook the drain points faff's andon channel
+  at, so it POSTs a minimal push notification (issue IDs + event class only, never spec, diff,
+  or transcript content) on run-critical events. Unset is a complete no-op; setting it is the
+  only thing that turns andon on. Treat it as a secret (a Slack/Discord webhook URL is itself
+  the credential), so it is passed into the cage name-only, never on the `docker run` argv.
+- `ANDON_FORMAT` (optional; default faff's own `generic`): the payload shape for the sink —
+  `generic`, `ntfy`, `slack`, or `discord`. A Slack or Discord webhook rejects the generic
+  payload, so set this to match the sink (e.g. `slack` for a Slack incoming webhook).
+- `ANDON_TOKEN` (optional): a bearer/auth token for sinks that need one (e.g. ntfy). Also a
+  secret, so passed name-only. Slack/Discord incoming webhooks carry their auth in the URL and
+  need no token.
+- `ANDON_EVENTS` (optional; default `park,sentry-trip,budget-breach`): a comma-separated
+  subset of the andon event classes — `park`, `sentry-trip`, `budget-breach`, `run-end` — to
+  notify on. Unset uses faff's default set, which omits `run-end`; add it here to be pinged on
+  every drain's completion.
 
 **Triggering.** Two cadences share one lock, so only one drain runs at a time:
 

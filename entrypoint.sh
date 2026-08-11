@@ -147,6 +147,8 @@ run_drain() {
        -e GEMINI_API_KEY \
        -e GEMINI_API_KEY_FAFF_PAID \
        -e OPENROUTER_API_KEY \
+       -e ANDON_URL \
+       -e ANDON_TOKEN \
        -e FAFF_MODEL="${FAFF_MODEL:-claude-opus-4-8}" \
        -e FAFF_EFFORT="${FAFF_EFFORT:-high}" \
        -e FAFF_WINDOW_HOURS="${FAFF_WINDOW_HOURS:-5}" \
@@ -154,6 +156,8 @@ run_drain() {
        -e FAFF_REVIEW_SLOT="${FAFF_REVIEW_SLOT:-}" \
        -e FAFF_SPEC_REVIEW_SLOT="${FAFF_SPEC_REVIEW_SLOT:-}" \
        -e FAFF_DROP_BACKENDS="${FAFF_DROP_BACKENDS:-}" \
+       -e ANDON_FORMAT="${ANDON_FORMAT:-}" \
+       -e ANDON_EVENTS="${ANDON_EVENTS:-}" \
        faff-cage; then
     echo "=== $(date -u +%FT%TZ) drain clean (disposition exit 0) ==="
   else
