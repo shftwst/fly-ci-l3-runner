@@ -12,9 +12,9 @@ RUN export DEBIAN_FRONTEND=noninteractive && apt-get update && apt-get install -
  && chmod a+r /etc/apt/keyrings/docker.asc \
  && echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu noble stable" \
       > /etc/apt/sources.list.d/docker.list \
- && curl -fsSL https://pkgs.tailscale.com/stable/ubuntu/noble.noarch.gpg -o /etc/apt/keyrings/tailscale.gpg \
- && chmod a+r /etc/apt/keyrings/tailscale.gpg \
- && echo "deb [signed-by=/etc/apt/keyrings/tailscale.gpg] https://pkgs.tailscale.com/stable/ubuntu noble main" \
+ && curl -fsSL https://pkgs.tailscale.com/stable/ubuntu/noble.asc -o /etc/apt/keyrings/tailscale.asc \
+ && chmod a+r /etc/apt/keyrings/tailscale.asc \
+ && echo "deb [signed-by=/etc/apt/keyrings/tailscale.asc] https://pkgs.tailscale.com/stable/ubuntu noble main" \
       > /etc/apt/sources.list.d/tailscale.list \
  && apt-get update && apt-get install -y --no-install-recommends \
       docker-ce docker-ce-cli containerd.io iptables tailscale \
