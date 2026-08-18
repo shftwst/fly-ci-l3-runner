@@ -204,9 +204,8 @@ if [ -n "${ANDON_URL:-}" ]; then
   # only write a scalar string — which the consumer silently drops, falling back to its
   # default set (which omits run-end). So write a placeholder scalar to create the line at
   # the right place/indent, then rewrite it in place as a block sequence (the form faff's
-  # config reader parses as an array). Same patch-the-clone idiom as FAFF_DROP_BACKENDS
-  # below. ANDON_EVENTS is a comma-separated list of andon event classes; unset -> faff's
-  # default set is used unchanged.
+  # config reader parses as an array). ANDON_EVENTS is a comma-separated list of andon event
+  # classes; unset -> faff's default set is used unchanged.
   if [ -n "${ANDON_EVENTS:-}" ]; then
     "$faff" config set --force andon.events __ANDON_EVENTS__ >/dev/null
     rc=$("$faff" config path 2>/dev/null | head -1)
@@ -231,22 +230,6 @@ fi
 # unset -> the committed slot is used unchanged.
 [ -n "${FAFF_REVIEW_SLOT:-}" ]      && "$faff" config set --force slots.review "$FAFF_REVIEW_SLOT" >/dev/null
 [ -n "${FAFF_SPEC_REVIEW_SLOT:-}" ] && "$faff" config set --force slots.spec_review "$FAFF_SPEC_REVIEW_SLOT" >/dev/null
-
-# Drop named adversarial-review backends whose COMPLETIONS hang or fail from this
-# environment (config set can't rewrite the refs list, so patch the cloned .faffrc). The
-# nvidia backend's /models check passes but its chat completions time out from fly, and
-# it sits first in the chain, so every review waits out its full deadline slice before
-# falling through to the working backends. FAFF_DROP_BACKENDS is a comma-separated list of
-# backend ref names to remove; unset -> the committed chain is used unchanged.
-if [ -n "${FAFF_DROP_BACKENDS:-}" ]; then
-  rc=$("$faff" config path 2>/dev/null | head -1)
-  [ -f "$rc" ] || rc=.faffrc.yaml
-  IFS=','; for b in $FAFF_DROP_BACKENDS; do
-    b=$(printf '%s' "$b" | tr -d '[:space:]')
-    [ -n "$b" ] && sed -i "/^[[:space:]]*-[[:space:]]*${b}[[:space:]]*$/d" "$rc"
-  done; unset IFS
-  echo "review backends dropped for this environment: $FAFF_DROP_BACKENDS"
-fi
 
 # 4. The drain. With FAFF_ISSUE_IDS set (the fast path), run beep-boop over just those
 #    issues, which skips the tidy + discovery pass; without it, run the full pipeline

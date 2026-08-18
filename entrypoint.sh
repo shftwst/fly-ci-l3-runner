@@ -209,7 +209,6 @@ run_drain() {
        -e FAFF_WINDOW_TOKENS="${FAFF_WINDOW_TOKENS:-}" \
        -e FAFF_REVIEW_SLOT="${FAFF_REVIEW_SLOT:-}" \
        -e FAFF_SPEC_REVIEW_SLOT="${FAFF_SPEC_REVIEW_SLOT:-}" \
-       -e FAFF_DROP_BACKENDS="${FAFF_DROP_BACKENDS:-}" \
        -e ANDON_FORMAT="${ANDON_FORMAT:-}" \
        -e ANDON_EVENTS="${ANDON_EVENTS:-}" \
        faff-cage; then
