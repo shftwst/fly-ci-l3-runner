@@ -194,7 +194,7 @@ Set as fly secrets or env:
 **Triggering.** Two cadences share one lock, so only one drain runs at a time:
 
 - **Cheap (on startup, then every `FAFF_TICK_SECS`):** a cheap Linear query for
-  `faff-automate` issues in Backlog or Todo. On a hit, it builds just those issues
+  `faff-automate` issues in Backlog, Todo, In Progress, or In Review. On a hit, it builds just those issues
   (`/faff-beep-boop <IDs>`, which skips tidy). Startup runs one immediately so ready work
   starts without waiting; an idle tick is one API call, no container and no claude session,
   so leaving it running is cheap.
@@ -229,7 +229,9 @@ full cadence runs (higher pickup latency, still correct).
 - Idle cost: with `LINEAR_API_KEY` set, an idle minute is one Linear API call, so this is
   cheap to leave running. The tidy grooming that a full drain does runs on the
   `FAFF_FULL_SECS` cadence (hourly by default), not every minute.
-- Pre-check scope: the fast query matches `faff-automate` issues in Backlog or Todo for
-  `FAFF_TEAM_KEY`. It is an optimisation, not the safety net; the full drain's own
+- Pre-check scope: the fast query matches `faff-automate` issues in Backlog, Todo, In Progress,
+  or In Review for `FAFF_TEAM_KEY`. In Progress and In Review (both Linear's `started` type) are
+  eligible so a held or orphaned build is resumed, not stranded until the daily full. It is an
+  optimisation, not the safety net; the full drain's own
   discovery is the authority, so a subtly-wrong query only delays work to the full
   cadence, it never drops it.

@@ -60,6 +60,15 @@ echo "budget window ${WINDOW_DESC}; drain hard-timeout ${DRAIN_TIMEOUT}."
 # One consolidated config line up front (before the multi-minute dockerd + cage build), so a
 # glance at the boot log shows every resolved cadence/target env var actually in effect.
 echo "config: target ${TARGET_REPO} | cheap pre-check every ${TICK_SECS}s | full drain daily ${FULL_HOUR}:00 ${FULL_TZ} | budget window ${WINDOW_DESC} | drain ceiling ${DRAIN_TIMEOUT} | team ${TEAM_KEY}"
+# Andon push-alerting config as resolved at boot. URL is printed with its query string
+# stripped (${ANDON_URL%%\?*}), matching drain.sh's own logging; ANDON_TOKEN shows only its
+# set/unset state, never its value. Unset ANDON_URL means andon is off (the whole channel is
+# a no-op).
+if [ -n "${ANDON_URL:-}" ]; then
+  echo "andon: url ${ANDON_URL%%\?*} | format ${ANDON_FORMAT:-generic} | events ${ANDON_EVENTS:-<faff default>} | token $([ -n "${ANDON_TOKEN:-}" ] && echo '<set>' || echo '<unset>')"
+else
+  echo "andon: off (ANDON_URL unset)"
+fi
 
 # 1. Start dockerd on the vfs storage driver. A Firecracker microVM has no kernel
 #    overlay for a nested engine to mount, so vfs is the driver that works on fly.
@@ -88,16 +97,19 @@ docker image prune -f
 #     from a persistent local working dir. (Anchors are NOT here — they're committed to git.)
 docker volume create faff-state >/dev/null
 
-# 3. Pre-check: the eligible faff-automate issues in Backlog/Todo for the team. Prints
-#    their identifiers space-separated (empty = none). Exit 2 = unavailable (no
+# 3. Pre-check: the eligible faff-automate issues in Backlog/Todo/In Progress/In Review for
+#    the team. Prints their identifiers space-separated (empty = none). Exit 2 = unavailable (no
 #    LINEAR_API_KEY, or the query failed); the caller then relies on the full cadence.
 eligible_ids() {
   [ -n "${LINEAR_API_KEY:-}" ] || return 2
   local q resp
-  # Genuinely-actionable = faff-automate present, NOT parked/held, and in a fresh state.
-  # state.type in [backlog, unstarted] means only Backlog + Todo pass — done (completed),
-  # cancelled (canceled), duplicate (duplicate), and in-progress/in-review (started) are all
-  # excluded by TYPE (Linear status names map onto these fixed types; "unstarted" is Todo).
+  # Genuinely-actionable = faff-automate present, NOT parked/held, and in a workable state.
+  # state.type in [backlog, unstarted, started] means Backlog + Todo + In Progress + In Review
+  # pass — done (completed), cancelled (canceled), and duplicate (duplicate) are excluded by
+  # TYPE (Linear status names map onto these fixed types; "unstarted" is Todo, and "started"
+  # covers both In Progress and In Review). Started is eligible so a held or orphaned build
+  # left In Progress by an earlier drain is picked up and resumed; the drain lock serialises
+  # firings, so the pre-check never collides with an issue a concurrent drain is building.
   # The label exclusion is the load-bearing fix: parking keeps faff-automate and leaves the
   # issue in Backlog/Todo, so without excluding faff-parked / faff-automation-hold a parked
   # issue keeps matching and the tick fires a full (expensive) drain every minute that
@@ -109,7 +121,7 @@ eligible_ids() {
   # type "blocks") and drop any candidate with a blocker not in a resolved state
   # (completed/canceled/duplicate) — client-side, in jq. A Done blocker means unblocked, so
   # it stays eligible; only genuinely-still-blocked issues are excluded.
-  q='{"query":"query($t:String!){issues(first:50,filter:{and:[{labels:{some:{name:{eq:\"faff-automate\"}}}},{labels:{every:{name:{nin:[\"faff-parked\",\"faff-automation-hold\"]}}}}],team:{key:{eq:$t}},state:{type:{in:[\"backlog\",\"unstarted\"]}}}){nodes{identifier inverseRelations{nodes{type issue{state{type}}}}}}}","variables":{"t":"'"$TEAM_KEY"'"}}'
+  q='{"query":"query($t:String!){issues(first:50,filter:{and:[{labels:{some:{name:{eq:\"faff-automate\"}}}},{labels:{every:{name:{nin:[\"faff-parked\",\"faff-automation-hold\"]}}}}],team:{key:{eq:$t}},state:{type:{in:[\"backlog\",\"unstarted\",\"started\"]}}}){nodes{identifier inverseRelations{nodes{type issue{state{type}}}}}}}","variables":{"t":"'"$TEAM_KEY"'"}}'
   # Auth header via `-K -` (config on stdin), NOT `-H "Authorization: $LINEAR_API_KEY"`, so
   # the key never becomes a curl argv element visible in `ps`/`/proc` on the fly host. This
   # tick fires hourly, so an on-argv key would sit in host-visible argv far more often than
