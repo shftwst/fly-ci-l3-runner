@@ -133,6 +133,35 @@ the file, and never the image. (`.env` is gitignored here so it cannot be commit
 
 Stop it when you land: `fly machine list` then `fly machine destroy <id> --force`.
 
+## Updating a running Machine
+
+To roll out a code change (a new `entrypoint.sh`, `drain.sh`, or `Dockerfile`) onto the
+Machine you already started, update its image in place. This keeps the same Machine and its
+`faff_docker` volume (the docker image cache plus the built cage image), so you neither
+re-pay the first-boot cage build nor lose any persisted `.faff` state on the volume. Do not
+use `fly deploy` for this, for the same restart-loop reason as the first boot.
+
+```sh
+# 1. Build and push the new image (same as the first deploy).
+fly deploy --build-only --push --app fly-ci-l3-runner
+#    Note the image ref it prints, e.g. registry.fly.io/fly-ci-l3-runner:deployment-XXXX.
+
+# 2. Find the Machine ID.
+fly machine list --app fly-ci-l3-runner
+
+# 3. Swap the image on that Machine, keeping its volume. The mount is preserved
+#    automatically, so faff_docker stays attached. --skip-start leaves a stopped Machine
+#    stopped; drop it to start the Machine as part of the update.
+fly machine update <machine-id> --image <image-ref-from-step-1> --skip-start --yes
+
+# 4. Start the Machine (if it was stopped, or you used --skip-start above).
+fly machine start <machine-id>
+```
+
+Right after the push, step 3 can fail with a 404 `manifest unknown` for the image digest:
+that is registry replication lag, not a bad image. Wait a few seconds and retry the same
+`fly machine update`; it succeeds once the manifest propagates.
+
 ## The controls
 
 Set as fly secrets or env:
