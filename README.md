@@ -190,6 +190,19 @@ Set as fly secrets or env:
   subset of the andon event classes — `park`, `sentry-trip`, `budget-breach`, `run-end` — to
   notify on. Unset uses faff's default set, which omits `run-end`; add it here to be pinged on
   every drain's completion.
+- `TS_AUTHKEY` (optional; unset = tailnet off): a tailscale OAuth **client secret**
+  (`tskey-client-...`) that joins the always-on Machine to your tailnet, so a drain can reach
+  tailnet-only hosts. An OAuth client secret is used rather than a plain auth key because it
+  does not expire (a 90-day auth key would silently fail to rejoin on a reboot past its expiry,
+  on an unattended box) and mints an ephemeral, tag-scoped node key each boot. The entrypoint
+  appends `?ephemeral=true&preauthorized=true` unless the value already carries query params.
+  Tailnet bring-up is best-effort: any failure warns and continues, it never fails the runner.
+  The bridged cage reaches tailnet IPs via the host route plus docker's bridge MASQUERADE, so
+  no cage change is needed. Treat it as a secret; pass it as a fly secret.
+- `TS_TAG` (default `tag:ci`): the ACL tag the node advertises. It must be a tag the OAuth
+  client is granted in the tailnet policy, or `tailscale up` is rejected.
+- `TS_HOSTNAME` (default `fly-ci-l3-runner`): the node name shown in the tailscale admin
+  console.
 
 **Triggering.** Two cadences share one lock, so only one drain runs at a time:
 

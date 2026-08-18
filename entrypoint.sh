@@ -80,6 +80,42 @@ if ! docker info >/dev/null 2>&1; then
 fi
 echo "dockerd up."
 
+# 1b. Tailnet (tailscale), OPTIONAL and best-effort. Joins the Machine to the operator's
+#     tailnet so a drain can reach tailnet-only hosts (the fly Machine has no headless
+#     limitation the operator's Mac does). Gated on TS_AUTHKEY: unset -> skipped and the
+#     runner is unchanged. Auth is a tailscale OAuth CLIENT SECRET (tskey-client-...), not a
+#     plain auth key: this Machine is always-on and unattended, an auth key expires at 90 days
+#     and a post-expiry reboot would silently fail to rejoin, whereas the OAuth secret does not
+#     expire and mints an ephemeral, tag-scoped node key each boot (auto-cleaned on shutdown,
+#     no dead nodes accumulate). Best-effort by design: any failure WARNS and continues -- the
+#     tailnet is a fallback path, never a drain dependency, so it must not fail the runner
+#     closed. Brought up AFTER dockerd so the bridge and ip_forward are already in place and a
+#     bridged cage can egress to tailnet IPs via the host route + docker's bridge MASQUERADE.
+if [ -n "${TS_AUTHKEY:-}" ]; then
+  echo "tailnet: bringing up tailscale ..."
+  # Real (kernel/tun) networking, not userspace: the host needs a routable tailscale0 for the
+  # cage to egress through. fly microVMs provide /dev/net/tun; recreate the node if absent.
+  [ -e /dev/net/tun ] || { mkdir -p /dev/net && mknod /dev/net/tun c 10 200 && chmod 600 /dev/net/tun; }
+  sysctl -wq net.ipv4.ip_forward=1 2>/dev/null || echo "WARN: could not enable ip_forward; cage->tailnet routing may not work."
+  mkdir -p /var/lib/tailscale /var/run/tailscale
+  tailscaled --state=/var/lib/tailscale/tailscaled.state --socket=/var/run/tailscale/tailscaled.sock \
+    > /var/log/tailscaled.log 2>&1 &
+  for i in $(seq 1 30); do [ -S /var/run/tailscale/tailscaled.sock ] && break; sleep 1; done
+  # Append ephemeral+preauthorized to the OAuth secret unless the operator already parameterised
+  # it (a '?' present means they did). preauthorized skips manual device approval, required for
+  # an unattended node; ephemeral auto-removes the node when it goes offline.
+  key="$TS_AUTHKEY"
+  case "$key" in *\?*) : ;; *) key="${key}?ephemeral=true&preauthorized=true" ;; esac
+  if tailscale up --auth-key="$key" --hostname="${TS_HOSTNAME:-fly-ci-l3-runner}" \
+       --advertise-tags="${TS_TAG:-tag:ci}" --timeout=30s >/dev/null 2>&1; then
+    echo "tailnet: up as ${TS_HOSTNAME:-fly-ci-l3-runner} ($(tailscale ip -4 2>/dev/null | head -1)), tag ${TS_TAG:-tag:ci}."
+  else
+    echo "WARN: tailscale up failed; continuing WITHOUT tailnet. Check TS_AUTHKEY is a tailscale OAuth client secret whose grant includes ${TS_TAG:-tag:ci}; see /var/log/tailscaled.log."
+  fi
+else
+  echo "tailnet: off (TS_AUTHKEY unset). Set it to a tailscale OAuth client secret to join the operator's tailnet; the runner works without it."
+fi
+
 # 2. Build the cage image once.
 echo "building the cage image ..."
 docker build -t faff-cage /cage
