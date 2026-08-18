@@ -2,3 +2,6 @@
 .env
 .env.*
 *.credentials.json
+
+# Local scratch space (e.g. downloaded .faff run evidence). Never committed.
+.scratch/
