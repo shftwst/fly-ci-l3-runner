@@ -201,6 +201,7 @@ run_drain() {
        -e GEMINI_API_KEY \
        -e GEMINI_API_KEY_FAFF_PAID \
        -e OPENROUTER_API_KEY \
+       -e OMLX_API_KEY \
        -e ANDON_URL \
        -e ANDON_TOKEN \
        -e FAFF_MODEL="${FAFF_MODEL:-claude-opus-4-8}" \
@@ -211,6 +212,7 @@ run_drain() {
        -e FAFF_SPEC_REVIEW_SLOT="${FAFF_SPEC_REVIEW_SLOT:-}" \
        -e ANDON_FORMAT="${ANDON_FORMAT:-}" \
        -e ANDON_EVENTS="${ANDON_EVENTS:-}" \
+       -e LOCAL_API_KEY="${LOCAL_API_KEY:-local-123}" \
        faff-cage; then
     echo "=== $(date -u +%FT%TZ) drain clean (disposition exit 0) ==="
   else
@@ -234,8 +236,8 @@ fi
 #     openrouter). Missing keys are an AUTH fault, which surfaces needs-human, so every
 #     build would park at the review step rather than merge. Not fatal to start (a target
 #     repo may not use adversarial review), but loud so it is not discovered via parks.
-if [ -z "${NVIDIA_API_KEY:-}" ] && [ -z "${GEMINI_API_KEY:-}" ] && [ -z "${OPENROUTER_API_KEY:-}" ]; then
-  echo "WARN: no NVIDIA_API_KEY / GEMINI_API_KEY / OPENROUTER_API_KEY set. If the target's review slot uses an adversarial backend (the faff repo does), builds will PARK at review (auth fault -> needs-human), not merge. Set the review-backend key(s) the target's .faffrc names."
+if [ -z "${NVIDIA_API_KEY:-}" ] && [ -z "${GEMINI_API_KEY:-}" ] && [ -z "${OPENROUTER_API_KEY:-}" && [ -z "${OMLX_API_KEY:-}" ]; then
+  echo "WARN: no NVIDIA_API_KEY / GEMINI_API_KEY / OPENROUTER_API_KEY / OMLX_API_KEY set. If the target's review slot uses an adversarial backend (the faff repo does), builds will PARK at review (auth fault -> needs-human), not merge. Set the review-backend key(s) the target's .faffrc names."
 fi
 
 # 6. The loop. Cadence:
