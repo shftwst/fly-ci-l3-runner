@@ -208,7 +208,8 @@ Set as fly secrets or env:
   at, so it POSTs a minimal push notification (issue IDs + event class only, never spec, diff,
   or transcript content) on run-critical events. Unset is a complete no-op; setting it is the
   only thing that turns andon on. Treat it as a secret (a Slack/Discord webhook URL is itself
-  the credential), so it is passed into the cage name-only, never on the `docker run` argv.
+  the credential), so it is passed into the cage name-only, never on the `docker run` argv, and only its
+  origin (scheme + host) is ever logged.
 - `ANDON_FORMAT` (optional; default faff's own `generic`): the payload shape for the sink —
   `generic`, `ntfy`, `slack`, or `discord`. A Slack or Discord webhook rejects the generic
   payload, so set this to match the sink (e.g. `slack` for a Slack incoming webhook).

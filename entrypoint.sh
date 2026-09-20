@@ -60,12 +60,20 @@ echo "budget window ${WINDOW_DESC}; drain hard-timeout ${DRAIN_TIMEOUT}."
 # One consolidated config line up front (before the multi-minute dockerd + cage build), so a
 # glance at the boot log shows every resolved cadence/target env var actually in effect.
 echo "config: target ${TARGET_REPO} | cheap pre-check every ${TICK_SECS}s | full drain daily ${FULL_HOUR}:00 ${FULL_TZ} | budget window ${WINDOW_DESC} | drain ceiling ${DRAIN_TIMEOUT} | team ${TEAM_KEY}"
-# Andon push-alerting config as resolved at boot. URL is printed with its query string
-# stripped (${ANDON_URL%%\?*}), matching drain.sh's own logging; ANDON_TOKEN shows only its
-# set/unset state, never its value. Unset ANDON_URL means andon is off (the whole channel is
-# a no-op).
+# Log a webhook's ORIGIN only (scheme + host, no path, no query). A Slack or Discord
+# incoming webhook carries its secret in the PATH, so stripping the query string alone
+# would put the whole credential in the logs.
+andon_origin() {
+  local u="${1%%\?*}" host
+  case "$u" in
+    *://*) host="${u#*://}"; printf '%s://%s' "${u%%://*}" "${host%%/*}" ;;
+    *)     printf '%s' "${u%%/*}" ;;
+  esac
+}
+# Andon push-alerting config as resolved at boot. ANDON_TOKEN shows only its set/unset
+# state, never its value. Unset ANDON_URL means andon is off (the whole channel is a no-op).
 if [ -n "${ANDON_URL:-}" ]; then
-  echo "andon: url ${ANDON_URL%%\?*} | format ${ANDON_FORMAT:-generic} | events ${ANDON_EVENTS:-<faff default>} | token $([ -n "${ANDON_TOKEN:-}" ] && echo '<set>' || echo '<unset>')"
+  echo "andon: url $(andon_origin "$ANDON_URL") (path redacted) | format ${ANDON_FORMAT:-generic} | events ${ANDON_EVENTS:-<faff default>} | token $([ -n "${ANDON_TOKEN:-}" ] && echo '<set>' || echo '<unset>')"
 else
   echo "andon: off (ANDON_URL unset)"
 fi

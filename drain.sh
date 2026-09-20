@@ -210,6 +210,17 @@ fi
 #     (sentry acting keys on attendedness, not the mint) for the reframe this anticipates.
 "$faff" config set --force autonomous.sentry_acting true >/dev/null
 
+# Log a webhook's ORIGIN only (scheme + host, no path, no query). A Slack or Discord
+# incoming webhook carries its secret in the PATH, so stripping the query string alone
+# would put the whole credential in the logs.
+andon_origin() {
+  local u="${1%%\?*}" host
+  case "$u" in
+    *://*) host="${u#*://}"; printf '%s://%s' "${u%%://*}" "${host%%/*}" ;;
+    *)     printf '%s' "${u%%/*}" ;;
+  esac
+}
+
 # 3d. Andon push-alerting. faff's andon channel POSTs a minimal notification (issue IDs +
 #     event class, never spec/diff/transcript content) to a webhook on run-critical events
 #     — parks, sentry trips, budget breaches, run-end. It reads TOP-LEVEL andon.* keys
@@ -240,7 +251,7 @@ if [ -n "${ANDON_URL:-}" ]; then
     done; unset IFS
     sed -i "s/^  events: __ANDON_EVENTS__.*/$block/" "$rc"
   fi
-  echo "andon: on -> ${ANDON_URL%%\?*} (format ${ANDON_FORMAT:-generic}, events ${ANDON_EVENTS:-<faff default>})."
+  echo "andon: on -> $(andon_origin "$ANDON_URL") (path redacted, format ${ANDON_FORMAT:-generic}, events ${ANDON_EVENTS:-<faff default>})."
 else
   echo "andon: off (ANDON_URL unset). No run-critical push notifications; events.jsonl remains the sole record."
 fi
