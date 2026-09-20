@@ -1,0 +1,12 @@
+# The image COPYs only cage/Dockerfile, drain.sh and entrypoint.sh. Everything
+# else is kept out of the build context so it is never uploaded to the builder.
+.git
+.gitignore
+.dockerignore
+.env
+.env.*
+*.credentials.json
+.scratch/
+.DS_Store
+README.md
+fly.toml
