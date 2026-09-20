@@ -236,7 +236,7 @@ fi
 #     openrouter). Missing keys are an AUTH fault, which surfaces needs-human, so every
 #     build would park at the review step rather than merge. Not fatal to start (a target
 #     repo may not use adversarial review), but loud so it is not discovered via parks.
-if [ -z "${NVIDIA_API_KEY:-}" ] && [ -z "${GEMINI_API_KEY:-}" ] && [ -z "${OPENROUTER_API_KEY:-}" && [ -z "${OMLX_API_KEY:-}" ]; then
+if [ -z "${NVIDIA_API_KEY:-}" ] && [ -z "${GEMINI_API_KEY:-}" ] && [ -z "${OPENROUTER_API_KEY:-}" ] && [ -z "${OMLX_API_KEY:-}" ]; then
   echo "WARN: no NVIDIA_API_KEY / GEMINI_API_KEY / OPENROUTER_API_KEY / OMLX_API_KEY set. If the target's review slot uses an adversarial backend (the faff repo does), builds will PARK at review (auth fault -> needs-human), not merge. Set the review-backend key(s) the target's .faffrc names."
 fi
 
