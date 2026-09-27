@@ -51,10 +51,25 @@ if [ -n "${CLAUDE_MCP_OAUTH_B64:-}" ]; then
   rm -f /tmp/creds.full.json
   chmod 600 "$HOME/.claude/.credentials.json" 2>/dev/null || true
 fi
+# Providing CLAUDE_MCP_OAUTH_B64 DECLARES that this runner drains Linear-tracked work, so a
+# dead or expired token is a config fault, not a reason to silently degrade. The cheap
+# pre-check runs on a SEPARATE credential (LINEAR_API_KEY), so it keeps finding eligible
+# issues and firing full agent drains that then abort at preflight — burning a paid turn per
+# tick. Refuse here, before the agent runs, and page the operator. Without the secret, git-only
+# is the intended mode and we only warn.
 if claude mcp list 2>/dev/null | grep -qiE "linear.*connected"; then
   echo "tracker: Linear MCP connected."
+elif [ -n "${CLAUDE_MCP_OAUTH_B64:-}" ]; then
+  echo "FATAL: Linear MCP required but not connected — CLAUDE_MCP_OAUTH_B64 is set but the token is missing, expired, or unauthorized. Refusing to drain before spending an agent turn (a Linear runner must not fall back to git-only). Re-export the token on an authorized machine and redeploy:" >&2
+  echo "  fly secrets set CLAUDE_MCP_OAUTH_B64=\"\$(jq -c '{mcpOAuth}' ~/.claude/.credentials.json | base64 | tr -d '\\n')\" -a fly-ci-l3-runner" >&2
+  if [ -n "${ANDON_URL:-}" ]; then
+    curl -sS --max-time 20 -X POST -H 'content-type: application/json' \
+      --data '{"text":"[fly-ci-l3-runner] FATAL: Linear MCP required but not connected (CLAUDE_MCP_OAUTH_B64 set, token missing/expired). Drain refused before spending. Re-export CLAUDE_MCP_OAUTH_B64 and redeploy."}' \
+      "$ANDON_URL" >/dev/null 2>&1 || true
+  fi
+  exit 78  # EX_CONFIG: an operator-fixable auth/config fault, distinct from a transient drain failure
 else
-  echo "WARN: Linear MCP is not connected; faff will run git-only and ignore Linear issues."
+  echo "WARN: Linear MCP is not connected and CLAUDE_MCP_OAUTH_B64 is unset; faff will run git-only and ignore Linear issues."
 fi
 
 # 1. Admission gate. In this container it passes (contained via /.dockerenv, no host
