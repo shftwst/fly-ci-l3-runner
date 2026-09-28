@@ -171,7 +171,15 @@ if [ -d /home/faff/state ]; then
   echo "resume state persisted on the mounted volume (.faff/resume, .faff/runs)."
 fi
 
-# 3b. Budget: an OPTIONAL rolling window governor aligned to the subscription usage window.
+# 3b. Register faff's turn-survival Stop hooks into the fresh clone. .claude/settings.json is
+#     gitignored in the target, so the clone arrives WITHOUT the runcheck/prepcheck/inflightcheck/
+#     turncheck Stop hooks that make beep-boop's turn-survival MECHANICAL. Without them, a headless
+#     `claude -p` can end a turn mid-prep with no hook to refuse it, and this --rm cage then reaps
+#     the drain — so the FAFF-884/1096/1139 backstop would be prose-only in the runner. hooks-ensure
+#     wires them into this ephemeral clone's .claude/settings.json (byte-stable no-op if present).
+"$faff" hooks-ensure >/dev/null 2>&1 || echo "WARN: faff hooks-ensure failed; turn-survival Stop hooks not registered in the cage"
+
+# 3c. Budget: an OPTIONAL rolling window governor aligned to the subscription usage window.
 #     OFF unless FAFF_WINDOW_TOKENS is set. With it, write the window (hours + token ceiling)
 #     and at_ceiling park-until-window-reset, so an unattended run PARKS when the window's
 #     tokens are spent and resumes when it resets, instead of running the model session into
