@@ -273,8 +273,9 @@ fi
 #    to fly). The timeout is a wall-clock ceiling so a wedged run cannot hold open forever.
 PROMPT="/faff-beep-boop"
 [ -n "${FAFF_ISSUE_IDS:-}" ] && PROMPT="/faff-beep-boop ${FAFF_ISSUE_IDS}"
-FAFF_RUN_DIR="/home/faff/app/.faff/runs/run-$(date -u +%Y%m%d-%H%M%S)-fly-l3"
-export FAFF_RUN_DIR
+# Never export FAFF_RUN_DIR: beep-boop reads an inherited one with no ledger as a faulty
+# handoff and refuses to start. This name only labels the stream when no run dir is found.
+PLACEHOLDER_RUN_DIR="/home/faff/app/.faff/runs/run-$(date -u +%Y%m%d-%H%M%S)-fly-l3"
 # Hard-timeout: entrypoint always passes an explicit value, so this fallback only fires if
 # drain.sh runs standalone. It is a coarse BACKSTOP, not the wedge guard (faff's sentry poller
 # is). Mirror entrypoint's split: window on -> WINDOW_HOURS + 1h (park-before-kill); window off
@@ -299,10 +300,9 @@ run_claude() {
 # logs, which retain ~5 minutes. So when the state volume is mounted, `tee` the stream to a
 # per-run file (stdout stays live for `fly logs`) and gzip it after.
 #
-# CORRELATION: beep-boop mints its OWN run-dir (run-<ts>-beepboop-<mode>) and re-exports
-# FAFF_RUN_DIR to it inside the claude child, so the name we set above is only a placeholder.
-# Stream to a temp file, then — drains are serialised, one at a time — resolve the run-dir
-# actually created during THIS drain (the newest dir touched since the start marker) and name
+# CORRELATION: beep-boop mints its OWN run-dir inside the claude child. Stream to a temp
+# file, then — drains are serialised, one at a time — resolve the run-dir actually created
+# during THIS drain (the newest dir touched since the start marker) and name
 # the stream after it, so streams/<run-id>.jsonl.gz sits beside runs/<run-id>/ and disposition
 # runs against the same real dir.
 DRAIN_START="/tmp/faff-drain-start.$$"; : > "$DRAIN_START"
@@ -320,7 +320,7 @@ fi
 RUN_DIR=$(find -H /home/faff/app/.faff/runs -mindepth 1 -maxdepth 1 -type d -newer "$DRAIN_START" 2>/dev/null | sort | tail -1)
 if [ -z "$RUN_DIR" ]; then
   echo "WARN: no run dir created this drain; disposition will report no-run-dir" >&2
-  RUN_DIR="$FAFF_RUN_DIR"
+  RUN_DIR="$PLACEHOLDER_RUN_DIR"
 fi
 rm -f "$DRAIN_START"
 
