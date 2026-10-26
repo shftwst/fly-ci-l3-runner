@@ -284,8 +284,10 @@ if [ -n "${FAFF_WINDOW_TOKENS:-}" ]; then
 else
   DRAIN_TIMEOUT="${FAFF_DRAIN_TIMEOUT:-1440m}"
 fi
+# claude -p otherwise ends the session after 600s of waiting on background tasks; 0 leaves
+# DRAIN_TIMEOUT as the only ceiling.
 run_claude() {
-  timeout "$DRAIN_TIMEOUT" \
+  CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS=0 timeout "$DRAIN_TIMEOUT" \
     claude -p "$PROMPT" \
       --model "${FAFF_MODEL:-claude-opus-4-8}" --effort "${FAFF_EFFORT:-high}" \
       --dangerously-skip-permissions \
@@ -314,8 +316,12 @@ fi
 
 # Resolve the run-dir beep-boop actually minted this drain; fall back to the placeholder if
 # none was created (e.g. an early gate stop before mint).
-RUN_DIR=$(find /home/faff/app/.faff/runs -mindepth 1 -maxdepth 1 -type d -newer "$DRAIN_START" 2>/dev/null | sort | tail -1)
-[ -n "$RUN_DIR" ] || RUN_DIR="$FAFF_RUN_DIR"
+# -H: .faff/runs is a symlink to the state volume, and find does not follow it otherwise.
+RUN_DIR=$(find -H /home/faff/app/.faff/runs -mindepth 1 -maxdepth 1 -type d -newer "$DRAIN_START" 2>/dev/null | sort | tail -1)
+if [ -z "$RUN_DIR" ]; then
+  echo "WARN: no run dir created this drain; disposition will report no-run-dir" >&2
+  RUN_DIR="$FAFF_RUN_DIR"
+fi
 rm -f "$DRAIN_START"
 
 if [ -d /home/faff/state ] && [ -f "$STREAM_TMP" ]; then
