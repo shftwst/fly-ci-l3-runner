@@ -210,6 +210,11 @@ fi
 #     (sentry acting keys on attendedness, not the mint) for the reframe this anticipates.
 "$faff" config set --force autonomous.sentry_acting true >/dev/null
 
+# 3d. Parallel builds, sized to this Machine rather than faff's default of 4. Each build runs
+#     the full unit suite, so 4 at once on 4 CPUs reached a load average of 32. Clone only.
+"$faff" config set --force concurrency_max "${FAFF_CONCURRENCY_MAX:-2}" >/dev/null
+echo "concurrency: at most ${FAFF_CONCURRENCY_MAX:-2} parallel builds."
+
 # Log a webhook's ORIGIN only (scheme + host, no path, no query). A Slack or Discord
 # incoming webhook carries its secret in the PATH, so stripping the query string alone
 # would put the whole credential in the logs.

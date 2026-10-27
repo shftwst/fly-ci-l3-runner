@@ -214,6 +214,7 @@ run_drain() {
        -e ANDON_TOKEN \
        -e FAFF_MODEL="${FAFF_MODEL:-claude-opus-4-8}" \
        -e FAFF_EFFORT="${FAFF_EFFORT:-high}" \
+       -e FAFF_CONCURRENCY_MAX="${FAFF_CONCURRENCY_MAX:-2}" \
        -e FAFF_WINDOW_HOURS="${FAFF_WINDOW_HOURS:-5}" \
        -e FAFF_WINDOW_TOKENS="${FAFF_WINDOW_TOKENS:-}" \
        -e FAFF_REVIEW_SLOT="${FAFF_REVIEW_SLOT:-}" \

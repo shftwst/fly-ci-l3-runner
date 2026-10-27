@@ -188,6 +188,8 @@ Set as fly secrets or env:
   `FAFF_DRAIN_TIMEOUT` (window + 1h) even when the window itself is off.
 - `FAFF_MODEL` (default `claude-opus-4-8`) / `FAFF_EFFORT` (default `high`): the model and
   effort the drain's `claude -p` runs on.
+- `FAFF_CONCURRENCY_MAX` (default 2): the most builds a drain runs in parallel. Each build runs
+  the full unit suite, so raise it only with a larger Machine size.
 - `FAFF_TEAM_KEY` (default `FAFF`): the tracker team the pre-check queries.
 - `FAFF_TICK_SECS` (default 3600 = hourly): the cheap pre-check cadence.
 - `FAFF_FULL_HOUR` (default 5): hour-of-day (0-23) for the once-daily full drain.
